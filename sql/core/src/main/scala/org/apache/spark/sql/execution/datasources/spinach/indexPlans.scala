@@ -18,14 +18,14 @@
 package org.apache.spark.sql.execution.datasources.spinach
 
 import org.apache.hadoop.fs.Path
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, Descending}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias}
 import org.apache.spark.sql.execution.command.RunnableCommand
-import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
+import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
+import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation, SpinachException}
 import org.apache.spark.sql.execution.datasources.spinach.utils.SpinachUtils
 
 /**
@@ -43,15 +43,26 @@ case class CreateIndex(
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val catalog = sparkSession.sessionState.catalog
     assert(catalog.tableExists(tableName), s"$tableName not exists")
-    catalog.lookupRelation(tableName) match {
+
+    val (fileCatalog, s, readerClassName) = catalog.lookupRelation(tableName) match {
       case SubqueryAlias(_, LogicalRelation(
-          HadoopFsRelation(_, fileCatalog, _, s, _, _: SpinachFileFormat, _), _, _)) =>
-        logInfo(s"Creating index $indexName")
-        val meta = SpinachUtils.getMeta(sparkSession.sparkContext.hadoopConfiguration, fileCatalog)
-        // TODO `path` can be None while in an empty spinach data source folder
-        val path = SpinachUtils.getPath(fileCatalog).get
+      HadoopFsRelation(_, fileCatalog, _, s, _, _: SpinachFileFormat, _), _, _)) =>
+        (fileCatalog, s, SpinachFileFormat.SPINACH_DATA_FILE_CLASSNAME)
+      case SubqueryAlias(_, LogicalRelation(
+      HadoopFsRelation(_, fileCatalog, _, s, _, _: ParquetFileFormat, _), _, _)) =>
+        (fileCatalog, s, SpinachFileFormat.PARQUET_DATA_FILE_CLASSNAME)
+      case other =>
+        throw new SpinachException(s"We don't support index building for ${other.simpleString}")
+    }
+
+    logInfo(s"Creating index $indexName")
+    val meta = SpinachUtils.getMeta(sparkSession.sparkContext.hadoopConfiguration, fileCatalog)
+    // TODO `path` can be None while in an empty spinach data source folder
+    SpinachUtils.getPath(fileCatalog) match {
+      case Some(path) =>
         meta match {
           case Some(oldMeta) =>
+            // append new data in the same folder or nothing changed
             val existsIndexes = oldMeta.indexMetas
             val existsData = oldMeta.fileMetas
             val exist = existsIndexes != null && existsIndexes.exists(_.name == indexName)
@@ -77,10 +88,12 @@ case class CreateIndex(
               deleteIfExits = true)
             SpinachIndexBuild(sparkSession, indexName, indexColumns, s, Array(path)).execute()
           case None =>
-            sys.error("meta cannot be empty during the index building")
+          // totoally new input data
+
         }
-      case _ => sys.error("Only support CreateIndex for SpinachRelation")
+      case None =>
     }
+
     Seq.empty
   }
 }
