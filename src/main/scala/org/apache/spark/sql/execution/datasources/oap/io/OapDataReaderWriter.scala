@@ -223,16 +223,16 @@ private[oap] class OapDataReader(
           }
 
         val iteratorFinished = System.currentTimeMillis()
-        logDebug("Load Index: " + (initFinished - start) + "ms")
-        logDebug("Load Stats: " + (statsAnalyseFinished - initFinished) + "ms")
-        logDebug("Construct Iterator: " + (iteratorFinished - statsAnalyseFinished) + "ms")
+        logInfo("Load Index: " + (initFinished - start) + "ms")
+        logInfo("Load Stats: " + (statsAnalyseFinished - initFinished) + "ms")
+        logInfo("Construct Iterator: " + (iteratorFinished - statsAnalyseFinished) + "ms")
         iter
       case _ =>
-        logDebug("No index file exist for data file: " + path)
+        logInfo("No index file exist for data file: " + path)
 
         val iter = fileScanner.iterator(conf, requiredIds)
         val iteratorFinished = System.currentTimeMillis()
-        logDebug("Construct Iterator: " + (iteratorFinished - start) + "ms")
+        logInfo("Construct Iterator: " + (iteratorFinished - start) + "ms")
 
         iter
     }
