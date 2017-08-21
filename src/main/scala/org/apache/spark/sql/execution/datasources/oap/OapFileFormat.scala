@@ -163,7 +163,7 @@ private[sql] class OapFileFormat extends FileFormat
     // OapFileFormat.deserializeDataSourceMeta(hadoopConf) match {
     meta match {
       case Some(m) =>
-        logInfo("Building OapDataReader with "
+        logDebug("Building OapDataReader with "
           + m.dataReaderClassName.substring(m.dataReaderClassName.lastIndexOf(".") + 1)
           + " ...")
 
@@ -257,7 +257,7 @@ private[sql] class OapFileFormat extends FileFormat
         val ic = new IndexContext(m)
 
         if (m.indexMetas.nonEmpty) { // check and use index
-          logInfo("Supported Filters by Oap:")
+          logDebug("Supported Filters by Oap:")
           // filter out the "filters" on which we can use index
           val supportFilters = filters.toArray.filter(canTriggerIndex)
           // After filtered, supportFilter only contains:

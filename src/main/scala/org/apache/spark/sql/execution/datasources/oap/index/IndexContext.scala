@@ -53,7 +53,7 @@ private[oap] class IndexContext(meta: DataSourceMeta) extends Logging {
 
   def selectAvailableIndex(intervalMap: mutable.HashMap[String, ArrayBuffer[RangeInterval]])
   : Unit = {
-    logInfo("Selecting Available Index:")
+    logDebug("Selecting Available Index:")
     var idx = 0
     while (idx < meta.indexMetas.length) {
       meta.indexMetas(idx).indexType match {
@@ -96,7 +96,7 @@ private[oap] class IndexContext(meta: DataSourceMeta) extends Logging {
       idx += 1
     } // end while
     availableIndexes.foreach(indices =>
-      logInfo("\t" + indices._2.toString + "; lastIdx: " + indices._1))
+      logDebug("\t" + indices._2.toString + "; lastIdx: " + indices._1))
   }
 
   /**
@@ -118,7 +118,7 @@ private[oap] class IndexContext(meta: DataSourceMeta) extends Logging {
     var bestIndexer: IndexMeta = null
     var ratio: Double = 0.0
     var isFirst = true
-    logInfo("Get Best Index:")
+    logDebug("Get Best Index:")
     for ((idx, indexMeta) <- availableIndexes) {
       indexMeta.indexType match {
         case BTreeIndex(entries) =>
@@ -138,9 +138,9 @@ private[oap] class IndexContext(meta: DataSourceMeta) extends Logging {
       bestIndexer = availableIndexes.head._2
     }
     if (bestIndexer != null) {
-      logInfo("\t" + bestIndexer.toString + "; lastIdx: " + lastIdx)
+      logDebug("\t" + bestIndexer.toString + "; lastIdx: " + lastIdx)
     } else {
-      logInfo("\t" + "No best indexer is found.")
+      logDebug("\t" + "No best indexer is found.")
     }
     (lastIdx, bestIndexer)
   }

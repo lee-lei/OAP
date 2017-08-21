@@ -206,6 +206,7 @@ private[oap] class OapDataReader(
               case StaticsAnalysisResult.FULL_SCAN =>
                 fileScanner.iterator(conf, requiredIds)
               case StaticsAnalysisResult.USE_INDEX =>
+                conf.setBoolean("oap.use_index", true)
                 fs.initialize(path, conf)
                 // total Row count can be get from the filter scanner
                 val rowIDs = {
@@ -223,16 +224,16 @@ private[oap] class OapDataReader(
           }
 
         val iteratorFinished = System.currentTimeMillis()
-        logInfo("Load Index: " + (initFinished - start) + "ms")
-        logInfo("Load Stats: " + (statsAnalyseFinished - initFinished) + "ms")
-        logInfo("Construct Iterator: " + (iteratorFinished - statsAnalyseFinished) + "ms")
+        logDebug("Load Index: " + (initFinished - start) + "ms")
+        logDebug("Load Stats: " + (statsAnalyseFinished - initFinished) + "ms")
+        logDebug("Construct Iterator: " + (iteratorFinished - statsAnalyseFinished) + "ms")
         iter
       case _ =>
-        logInfo("No index file exist for data file: " + path)
+        logDebug("No index file exist for data file: " + path)
 
         val iter = fileScanner.iterator(conf, requiredIds)
         val iteratorFinished = System.currentTimeMillis()
-        logInfo("Construct Iterator: " + (iteratorFinished - start) + "ms")
+        logDebug("Construct Iterator: " + (iteratorFinished - start) + "ms")
 
         iter
     }
