@@ -265,7 +265,7 @@ private[sql] object FileSourceStrategy extends Strategy with Logging {
         execution.ProjectExec(projects, withFilter)
       }
       val use_index = hadoopConf.getBoolean("oap.use_index", false)
-      if (!use_index) {
+      if (use_index) {
         logInfo("Used index by OAP")
       } else {
         logInfo("Not used index by OAP")
