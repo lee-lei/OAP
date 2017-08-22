@@ -275,6 +275,8 @@ private[sql] class OapFileFormat extends FileFormat
 
         hadoopConf.setDouble(SQLConf.OAP_FULL_SCAN_THRESHOLD.key,
           sparkSession.conf.get(SQLConf.OAP_FULL_SCAN_THRESHOLD))
+        hadoopConf.setBoolean(SQLConf.OAP_USE_INDEX.key,
+          sparkSession.conf.get(SQLConf.OAP_USE_INDEX))
         val broadcastedHadoopConf =
           sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
 

@@ -648,6 +648,12 @@ object SQLConf {
       .booleanConf
       .createWithDefault(false)
 
+  val OAP_USE_INDEX =
+    SQLConfigBuilder("spark.sql.oap.use.index")
+      .internal()
+      .doc("To indicate to use index or not even if the index file is there")
+      .booleanConf
+      .createWithDefault(true)
 
   object Deprecated {
     val MAPRED_REDUCE_TASKS = "mapred.reduce.tasks"

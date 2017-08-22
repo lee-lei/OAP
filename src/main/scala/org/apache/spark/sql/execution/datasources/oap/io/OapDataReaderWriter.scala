@@ -176,8 +176,15 @@ private[oap] class OapDataReader(
         val dataFileSize = path.getFileSystem(conf).getContentSummary(path).getLength
         val isTesting = conf.getBoolean(SQLConf.OAP_IS_TESTING.key,
                               SQLConf.OAP_IS_TESTING.defaultValue.get)
+        val use_index = conf.getBoolean(SQLConf.OAP_USE_INDEX.key,
+                              SQLConf.OAP_USE_INDEX.defaultValue.get)
         val iter =
-          if (indexFileSize > dataFileSize * 0.7 && !isTesting) {
+          // Below is for OAP developers to easily analyze and compare performance without removing
+          // the index after it's created.
+          if (!use_index) {
+            logWarning("Index won't be used")
+            fileScanner.iterator(conf, requiredIds)
+          } else if (indexFileSize > dataFileSize * 0.7 && !isTesting) {
             logWarning(s"Index File size $indexFileSize B is too large comparing " +
                         s"to Data File Size $dataFileSize. Using Data File Scan instead.")
             fileScanner.iterator(conf, requiredIds)
