@@ -18,11 +18,14 @@
 package org.apache.spark.sql.execution.datasources.oap.io
 
 import org.apache.hadoop.conf.Configuration
+import org.apache.spark.executor.custom.CustomManager
 import org.apache.hadoop.fs.{FSDataOutputStream, Path}
 import org.apache.parquet.format.CompressionCodec
 import org.apache.parquet.io.api.Binary
 
 import org.apache.spark.internal.Logging
+import org.apache.spark.scheduler.SparkListenerOapIndexInfoUpdate
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.oap.{DataSourceMeta, OapFileFormat}
 import org.apache.spark.sql.execution.datasources.oap.filecache.DataFiberBuilder
@@ -31,6 +34,12 @@ import org.apache.spark.sql.execution.datasources.oap.statistics._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.Platform
+
+class OapIndexHeartBeatMessager extends CustomManager with Logging {
+  override def status(conf: SparkConf): String = {
+    OapDataReader.status
+  }
+}
 
 // TODO: [linhong] Let's remove the `isCompressed` argument
 private[oap] class OapDataWriter(
@@ -150,6 +159,22 @@ private[oap] class OapDataWriter(
   }
 }
 
+object OapDataReader extends Logging {
+  var useIndex: Boolean = false
+  var partitionData: String = null
+  def status: String = {
+    val indexStatusRawData: String =
+      if (useIndex && partitionData != null) {
+        " partition data will use OAP index.\n"
+      } else " partition data will not use OAP index.\n"
+    indexStatusRawData
+  }
+  def update(indexInfo: SparkListenerOapIndexInfoUpdate): Unit = {
+    logInfo("host " + indexInfo.hostName + " executor id:" + indexInfo.executorId +
+      indexInfo.oapIndexInfo)
+  }
+}
+
 private[oap] class OapDataReader(
   path: Path,
   meta: DataSourceMeta,
@@ -164,6 +189,8 @@ private[oap] class OapDataReader(
     val fileScanner = DataFile(path.toString, meta.schema, meta.dataReaderClassName, conf)
 
     val start = System.currentTimeMillis()
+    OapDataReader.useIndex = false
+    OapDataReader.partitionData = path.toString()
     filterScanner match {
       case Some(fs) if fs.existRelatedIndexFile(path, conf) =>
         val indexPath = IndexUtils.indexFileFromDataFile(path, fs.meta.name, fs.meta.time)
@@ -196,6 +223,7 @@ private[oap] class OapDataReader(
                   else fs.toArray
                 }
 
+                OapDataReader.useIndex = true
                 fileScanner.iterator(conf, requiredIds, rowIDs)
               case StaticsAnalysisResult.SKIP_INDEX =>
                 Iterator.empty

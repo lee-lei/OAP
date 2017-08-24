@@ -37,7 +37,7 @@ private[spark] case class Heartbeat(
     executorId: String,
     accumUpdates: Array[(Long, Seq[AccumulatorV2[_, _]])], // taskId -> accumulator updates
     blockManagerId: BlockManagerId,
-    customizedInfo: Option[String] = None)
+    customizedInfo: Seq[String] = Nil)
 
 /**
  * An event that SparkContext uses to notify HeartbeatReceiver that SparkContext.taskScheduler is
@@ -148,8 +148,12 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
         context.reply(HeartbeatResponse(reregisterBlockManager = true))
       }
 
-      customizedInfo.foreach { info =>
-        sc.listenerBus.post(SparkListenerCustomInfoUpdate(blockManagerId.host, executorId, info))}
+      // Right now there are two user events. First is for fiber cache infor update.
+      // Second is for oap index infor update.
+      sc.listenerBus.post(SparkListenerCustomInfoUpdate(blockManagerId.host, executorId,
+        customizedInfo.head))
+      sc.listenerBus.post(SparkListenerOapIndexInfoUpdate(blockManagerId.host, executorId,
+        customizedInfo.last))
   }
 
   /**
