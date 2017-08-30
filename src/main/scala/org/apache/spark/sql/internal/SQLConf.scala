@@ -648,7 +648,7 @@ object SQLConf {
       .booleanConf
       .createWithDefault(false)
 
-  val OAP_USE_INDEX =
+  val OAP_USE_INDEX_FOR_DEVELOPERS =
     SQLConfigBuilder("spark.sql.oap.use.index")
       .internal()
       .doc("To indicate to use index or not even if the index file is there")
