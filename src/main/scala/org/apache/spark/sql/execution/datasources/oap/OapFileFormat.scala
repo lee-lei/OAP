@@ -334,8 +334,7 @@ private[sql] class OapFileFormat extends FileFormat
   def hasAvailableIndex(expressions: Seq[Expression]): Boolean = {
     (meta, sparkSession.conf.get(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS)) match {
       case (Some(m), true) => expressions.exists(m.isSupportedByIndex(_, indexHashSetList))
-      case (None, true) => false
-      case (None, false) => false
+      case (None, _) => false
       case (_, false) => false
     }
   }
@@ -345,8 +344,7 @@ private[sql] class OapFileFormat extends FileFormat
       case (Some(m), true) =>
           attributes.map{attr =>
             indexHashSetList.map(_.contains(attr.name)).reduce(_ || _)}.reduce(_ && _)
-      case (None, true) => false
-      case (None, false) => false
+      case (None, _) => false
       case (_, false) => false
     }
   }
