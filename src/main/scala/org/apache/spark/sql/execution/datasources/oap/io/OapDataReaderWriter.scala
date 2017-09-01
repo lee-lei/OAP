@@ -182,8 +182,8 @@ private[oap] class OapDataReader(
           // Below is for OAP developers to easily analyze and compare performance without removing
           // the index after it's created.
           if (!useIndexForDev) {
-            logWarning("OAP index is disabled. Using below approach to enable index,
-              sqlContext.conf.setConfString(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.key, true)")
+            logWarning("OAP index is disabled. Using below approach to enable index," +
+              "sqlContext.conf.setConfString(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.key, true)")
             fileScanner.iterator(conf, requiredIds)
           } else if (limit <= 0 && indexFileSize > dataFileSize * 0.7 && !isTesting) {
             logWarning(s"Index File size $indexFileSize B is too large comparing " +
