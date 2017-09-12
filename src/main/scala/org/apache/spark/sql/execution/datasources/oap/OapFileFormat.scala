@@ -258,8 +258,8 @@ private[sql] class OapFileFormat extends FileFormat
 
         hadoopConf.setDouble(SQLConf.OAP_FULL_SCAN_THRESHOLD.key,
           sparkSession.conf.get(SQLConf.OAP_FULL_SCAN_THRESHOLD))
-        hadoopConf.setBoolean(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.key,
-          sparkSession.conf.get(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS))
+        hadoopConf.setBoolean(SQLConf.OAP_ENABLE_OINDEX.key,
+          sparkSession.conf.get(SQLConf.OAP_ENABLE_OINDEX))
         val broadcastedHadoopConf =
           sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
 
@@ -314,21 +314,20 @@ private[sql] class OapFileFormat extends FileFormat
   }
 
   def hasAvailableIndex(expressions: Seq[Expression]): Boolean = {
-    (meta, sparkSession.conf.get(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS)) match {
-      case (Some(m), true) => expressions.exists(m.isSupportedByIndex(_, indexHashSetList))
-      case (None, _) => false
-      case (_, false) => false
+    meta match {
+      case Some(m) if sparkSession.conf.get(SQLConf.OAP_ENABLE_OINDEX) =>
+        expressions.exists(m.isSupportedByIndex(_, indexHashSetList))
+      case _ => false
     }
   }
 
   def hasAvailableIndex(attributes: AttributeSet): Boolean = {
-    (meta, sparkSession.conf.get(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS)) match {
-      case (Some(m), true) =>
-          attributes.map{attr =>
-            indexHashSetList.map(_.contains(attr.name)).reduce(_ || _)}.reduce(_ && _)
-      case (None, _) => false
-      case (_, false) => false
-    }
+    meta match {
+      case Some(m) if sparkSession.conf.get(SQLConf.OAP_ENABLE_OINDEX) =>
+        attributes.map{attr =>
+          indexHashSetList.map(_.contains(attr.name)).reduce(_ || _)}.reduce(_ && _)
+      case _ => false
+   }
   }
 }
 

@@ -175,8 +175,8 @@ private[oap] class OapDataReader(
         val dataFileSize = path.getFileSystem(conf).getContentSummary(path).getLength
         val isTesting = conf.getBoolean(SQLConf.OAP_IS_TESTING.key,
                               SQLConf.OAP_IS_TESTING.defaultValue.get)
-        val useIndexForDev = conf.getBoolean(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.key,
-                               SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.defaultValue.get)
+        val enableOIndex = conf.getBoolean(SQLConf.OAP_ENABLE_OINDEX.key,
+          SQLConf.OAP_ENABLE_OINDEX.defaultValue.get)
         val isAscending = options.getOrElse(
           OapFileFormat.OAP_QUERY_ORDER_OPTION_KEY, "false").toBoolean
         val limit = options.getOrElse(OapFileFormat.OAP_QUERY_LIMIT_OPTION_KEY, "0").toInt
@@ -193,7 +193,7 @@ private[oap] class OapDataReader(
         val iter =
           // Below is for OAP developers to easily analyze and compare performance without removing
           // the index after it's created.
-          if (!useIndexForDev) {
+          if (!enableOIndex) {
             logWarning("OAP index is disabled. Using below approach to enable index,\n" +
               "sqlContext.conf.setConfString(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.key, true)")
             fileScanner.iterator(conf, requiredIds)

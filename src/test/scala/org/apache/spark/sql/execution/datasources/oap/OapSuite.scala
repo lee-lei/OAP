@@ -23,6 +23,7 @@ import org.scalatest.BeforeAndAfter
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql._
 import org.apache.spark.sql.execution.datasources.oap.{DataSourceMeta, OapFileFormat}
@@ -130,7 +131,7 @@ class OapSuite extends QueryTest with SharedSQLContext with BeforeAndAfter {
     // No index scanner is used.
     val readerNoIndex = new OapDataReader(filePath, dataSourceMeta, None, requiredIds)
     val itNoIndex = readerNoIndex.initialize(conf)
-    assert (itNoIndex.size == 100)
+    assert(itNoIndex.size == 100)
     val ic = new IndexContext(dataSourceMeta)
     val filters: Array[Filter] = Array(
       And(GreaterThan("a", 9), LessThan("a", 14)))
@@ -138,13 +139,13 @@ class OapSuite extends QueryTest with SharedSQLContext with BeforeAndAfter {
     var filterScanner = ic.getScanner
     val readerIndex = new OapDataReader(filePath, dataSourceMeta, filterScanner, requiredIds)
     val itIndex = readerIndex.initialize(conf)
-    assert (itIndex.size == 4)
-    conf.setBoolean(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.key, false)
+    assert(itIndex.size == 4)
+    conf.setBoolean(SQLConf.OAP_ENABLE_OINDEX.key, false)
     val itSetIgnoreIndex = readerIndex.initialize(conf)
-    assert (itSetIgnoreIndex.size == 100)
-    conf.setBoolean(SQLConf.OAP_USE_INDEX_FOR_DEVELOPERS.key, true)
+    assert(itSetIgnoreIndex.size == 100)
+    conf.setBoolean(SQLConf.OAP_ENABLE_OINDEX.key, true)
     val itSetUseIndex = readerIndex.initialize(conf)
-    assert (itSetUseIndex.size == 4)
+    assert(itSetUseIndex.size == 4)
     dir.delete()
   }
 

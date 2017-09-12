@@ -648,10 +648,10 @@ object SQLConf {
       .booleanConf
       .createWithDefault(false)
 
-  val OAP_USE_INDEX_FOR_DEVELOPERS =
-    SQLConfigBuilder("spark.sql.oap.use.index")
+  val OAP_ENABLE_OINDEX =
+    SQLConfigBuilder("spark.sql.oap.oindex.enabled")
       .internal()
-      .doc("To indicate to use index or not even if the index file is there")
+      .doc("To indicate to enable/disable oindex for developers even if the index file is there")
       .booleanConf
       .createWithDefault(true)
 
