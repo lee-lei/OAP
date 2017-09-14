@@ -15,32 +15,32 @@
  * limitations under the License.
  */
 
+package org.apache.spark.sql.execution.datasources.oap.index
 
+private[oap] abstract class BitmapIndexInterfaces {
 
-private[oap] class BitmapIndexInterfaces {
+  // TODO: Add the arguments and return types.
+  def BitmapIndexOpenFile
+  def BitmapIndexCloseFile
 
-  BitmapIndexOpenFile
-  BitmapIndexCloseFile
+  def BitmapIndexLoadFromOffset
 
-  BitmapIndexLoadFromOffset
+  def BitmapIndexReadRows
+  def BitmapIndexReadRow
 
-  BitmapIndexReadRows
-  BitmapIndexReadRow
-
-  BitmapIndexGetFromFibers
-  BitmapIndexGetFromFiber
-  BitmapIndexSaveToFibers
-  BitmapIndexSaveToFiber
+  def BitmapIndexGetFromFibers
+  def BitmapIndexGetFromFiber
+  def BitmapIndexSaveToFibers
+  def BitmapIndexSaveToFiber
   // If the index is updated or refreshed, the fibers will be flushed accordingly.
-  BitmapIndexFlushFibers
-  BitmapIndexFlushFiber
- 
+  def BitmapIndexFlushFibers
+  def BitmapIndexFlushFiber
   // The sorted keyset can be cached either in fibers(DRAM) or NVRAM if no rooms in fiber caches.
-  BitmapIndexGetSortedKeySet
+  def BitmapIndexGetSortedKeySet
   // The sorted keyset can be updated into fibers or NVRAM once the index is updated or refreshed.
-  BitmapIndexUpdateSortedKeySet
-  BitmapIndexSaveSortedKeySet
+  def BitmapIndexUpdateSortedKeySet
+  def BitmapIndexSaveSortedKeySet
 
-  BitmapIndexWriteRows
-  BitmapIndexWriteRow
+  def BitmapIndexWriteRows
+  def BitmapIndexWriteRow
 }
