@@ -159,14 +159,11 @@ private[oap] class OapDataWriter(
   }
 }
 
-object OapDataReader extends Logging {
-  var useIndex: Boolean = false
+private[oap] object OapDataReader extends Logging {
+  var useIndex: String = "false"
   var partitionData: String = null
   def status: String = {
-    val indexStatusRawData: String =
-      if (useIndex && partitionData != null) {
-        " partition data will use OAP index.\n"
-      } else " partition data will not use OAP index.\n"
+    val indexStatusRawData: String = s" Partition File $partitionData use OAP index $useIndex"
     indexStatusRawData
   }
   def update(indexInfo: SparkListenerOapIndexInfoUpdate): Unit = {
@@ -188,7 +185,7 @@ private[oap] class OapDataReader(
     val fileScanner = DataFile(path.toString, meta.schema, meta.dataReaderClassName, conf)
 
     val start = System.currentTimeMillis()
-    OapDataReader.useIndex = false
+    OapDataReader.useIndex = "false"
     OapDataReader.partitionData = path.toString()
     filterScanner match {
       case Some(fs) if fs.existRelatedIndexFile(path, conf) =>
@@ -236,7 +233,8 @@ private[oap] class OapDataReader(
                   else fs.toArray
                 }
 
-                OapDataReader.useIndex = true
+                OapDataReader.useIndex = "true"
+                logInfo("Partition File " + path.toString() + " will use OAP index.\n")
                 fileScanner.iterator(conf, requiredIds, rowIDs)
               case StaticsAnalysisResult.SKIP_INDEX =>
                 Iterator.empty
