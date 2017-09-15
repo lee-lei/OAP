@@ -23,10 +23,13 @@ private[oap] abstract class BitmapIndexInterfaces {
   def BitmapIndexOpenFile
   def BitmapIndexCloseFile
 
-  def BitmapIndexLoadFromOffset
+  def BitmapIndexBuild
+  def BitmapIndexSearchFromOffset
 
   def BitmapIndexReadRows
   def BitmapIndexReadRow
+  def BitmapIndexWriteRows
+  def BitmapIndexWriteRow
 
   def BitmapIndexGetFromFibers
   def BitmapIndexGetFromFiber
@@ -41,6 +44,12 @@ private[oap] abstract class BitmapIndexInterfaces {
   def BitmapIndexUpdateSortedKeySet
   def BitmapIndexSaveSortedKeySet
 
-  def BitmapIndexWriteRows
-  def BitmapIndexWriteRow
+  def BitmapIndexCompress
+  def BitmapIndexDecompress
+
+  def BitmapIndexEncode
+  def BitmapIndexDecode
+
+  def BitmapIndexConsistencyCheck
+  def BitmapIndexDump
 }
