@@ -23,33 +23,46 @@ private[oap] abstract class BitmapIndexInterfaces {
   def BitmapIndexOpenFile
   def BitmapIndexCloseFile
 
+  // Below is to generate hash maps
   def BitmapIndexBuild
-  def BitmapIndexSearchFromOffset
+  // Below is to scan the hash maps to get the desired bitmap rows.
+  def BitmapIndexSearch
 
+  // Below are used to read bitmap sets from hash maps.
   def BitmapIndexReadRows
   def BitmapIndexReadRow
   def BitmapIndexWriteRows
   def BitmapIndexWriteRow
 
+  // Below are used to cache bitmap index data to fibers.
   def BitmapIndexGetFromFibers
-  def BitmapIndexGetFromFiber
   def BitmapIndexSaveToFibers
-  def BitmapIndexSaveToFiber
-  // If the index is updated or refreshed, the fibers will be flushed accordingly.
+  // If the index is updated or refreshed, the index fibers will be flushed accordingly.
   def BitmapIndexFlushFibers
-  def BitmapIndexFlushFiber
+  // TODO: directly cache hashmap to NVRAM to avoid serialization/deserialization,
+  // since it's byte addressable.
+
   // The sorted keyset can be cached either in fibers(DRAM) or NVRAM if no rooms in fiber caches.
   def BitmapIndexGetSortedKeySet
   // The sorted keyset can be updated into fibers or NVRAM once the index is updated or refreshed.
   def BitmapIndexUpdateSortedKeySet
   def BitmapIndexSaveSortedKeySet
 
+  // Below are used to compress/decompress the entire index files.
   def BitmapIndexCompress
   def BitmapIndexDecompress
 
-  def BitmapIndexEncode
-  def BitmapIndexDecode
+  // Below are used to encode/decode the single cell or rows or columns.
+  def BitmapIndexEncodeBatch
+  def BitmapIndexEncodeCell
+  def BitmapIndexDecodeBatch
+  def BitmapIndexDecodeCell
 
+  // The consistency tool will check index header, index data and index bitmaps.
   def BitmapIndexConsistencyCheck
+  // Below is to dump the index file in a friendly approach.
   def BitmapIndexDump
+
+  // TODO: make the bitmap index interfaces are general for different bitmap index implementations,
+  // including ours and existing third-party.
 }
