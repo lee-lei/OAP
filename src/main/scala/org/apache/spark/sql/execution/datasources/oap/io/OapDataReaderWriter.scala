@@ -31,9 +31,12 @@ import org.apache.spark.sql.execution.datasources.oap.{DataSourceMeta, OapFileFo
 import org.apache.spark.sql.execution.datasources.oap.filecache.DataFiberBuilder
 import org.apache.spark.sql.execution.datasources.oap.index._
 import org.apache.spark.sql.execution.datasources.oap.statistics._
+import org.apache.spark.sql.execution.datasources.oap.utils.OapIndexInfoStatusSerDe
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.Platform
+
+import org.apache.spark.util.TimeStampedHashMap
 
 class OapIndexHeartBeatMessager extends CustomManager with Logging {
   override def status(conf: SparkConf): String = {
@@ -159,16 +162,27 @@ private[oap] class OapDataWriter(
   }
 }
 
+case class OapIndexInfoStatus(path: String, useIndex: Boolean)
+
 private[oap] object OapDataReader extends Logging {
-  var useIndex: String = "false"
-  var partitionData: String = null
+  val partitionOAPIndex = new TimeStampedHashMap[String, Boolean](updateTimeStampOnGet = true)
   def status: String = {
-    val indexStatusRawData: String = s" Partition File $partitionData use OAP index $useIndex"
+    val indexInfoStatusSeq = partitionOAPIndex.map(kv => OapIndexInfoStatus(kv._1, kv._2)).toSeq
+    logDebug("current partition files: \n" +
+      indexInfoStatusSeq.map{case indexInfoStatus: OapIndexInfoStatus =>
+        "partition file: " + indexInfoStatus.path +
+          " use index: " + indexInfoStatus.useIndex + "\n"}.mkString("\n"))
+    val indexStatusRawData = OapIndexInfoStatusSerDe.serialize(indexInfoStatusSeq)
+    val threshTime = System.currentTimeMillis()
+    partitionOAPIndex.clearOldValues(threshTime)
     indexStatusRawData
   }
   def update(indexInfo: SparkListenerOapIndexInfoUpdate): Unit = {
-    logInfo("host " + indexInfo.hostName + " executor id:" + indexInfo.executorId +
-      indexInfo.oapIndexInfo)
+    val indexStatusRawData = OapIndexInfoStatusSerDe.deserialize(indexInfo.oapIndexInfo)
+    logInfo("host " + indexInfo.hostName + " executor id:" + indexInfo.executorId)
+    indexStatusRawData.foreach {oapIndexInfo =>
+      logInfo("\n partition file: " + oapIndexInfo.path +
+        " use OAP index: " + oapIndexInfo.useIndex)}
   }
 }
 
@@ -185,8 +199,6 @@ private[oap] class OapDataReader(
     val fileScanner = DataFile(path.toString, meta.schema, meta.dataReaderClassName, conf)
 
     val start = System.currentTimeMillis()
-    OapDataReader.useIndex = "false"
-    OapDataReader.partitionData = path.toString()
     filterScanner match {
       case Some(fs) if fs.existRelatedIndexFile(path, conf) =>
         val indexPath = IndexUtils.indexFileFromDataFile(path, fs.meta.name, fs.meta.time)
@@ -233,7 +245,7 @@ private[oap] class OapDataReader(
                   else fs.toArray
                 }
 
-                OapDataReader.useIndex = "true"
+                OapDataReader.partitionOAPIndex.put(path.toString(), true)
                 logInfo("Partition File " + path.toString() + " will use OAP index.\n")
                 fileScanner.iterator(conf, requiredIds, rowIDs)
               case StaticsAnalysisResult.SKIP_INDEX =>
