@@ -25,14 +25,12 @@ import org.json4s.JsonDSL._
 
 
 /**
- * This is user defined Json protocol for SerDe, here the format of Json output should like
+ * This is user defined Json protocol for SerDe, here the format of Json outputs are like
  * following:
  *   {"oapIndexInfoStatusRawDataArray" :
  *     ["partitionFilePath" : ""
- *      {"useOapIndexJValue" :
- *        ["true/false" : Boolean]
-       }]
-       [] ... []}
+ *      "useOapIndex" : "true/false"]
+ *     [] ... []}
  */
 
 private[oap] object OapIndexInfoStatusSerDe extends SerDe[String, Seq[OapIndexInfoStatus]] {
@@ -52,12 +50,12 @@ private[oap] object OapIndexInfoStatusSerDe extends SerDe[String, Seq[OapIndexIn
 
   private[oap] def indexStatusRawDataFromJson(json: JValue): OapIndexInfoStatus = {
     val path = (json \ "partitionFilePath").extract[String]
-    val useIndex = (json \ "useOapIndexJValue").extract[Boolean]
+    val useIndex = (json \ "useOapIndex").extract[Boolean]
     OapIndexInfoStatus(path, useIndex)
   }
 
   private[oap] def indexStatusRawDataToJson(statusRawData: OapIndexInfoStatus): JValue = {
     ("partitionFilePath" -> statusRawData.path)~
-      ("useOapIndexJValue" -> statusRawData.useIndex)
+      ("useOapIndex" -> statusRawData.useIndex)
   }
 }

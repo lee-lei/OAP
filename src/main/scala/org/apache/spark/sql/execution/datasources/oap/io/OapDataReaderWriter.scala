@@ -162,27 +162,26 @@ private[oap] class OapDataWriter(
   }
 }
 
-case class OapIndexInfoStatus(path: String, useIndex: Boolean)
+private[oap] case class OapIndexInfoStatus(path: String, useIndex: Boolean)
 
 private[oap] object OapDataReader extends Logging {
   val partitionOAPIndex = new TimeStampedHashMap[String, Boolean](updateTimeStampOnGet = true)
   def status: String = {
     val indexInfoStatusSeq = partitionOAPIndex.map(kv => OapIndexInfoStatus(kv._1, kv._2)).toSeq
+    val threshTime = System.currentTimeMillis()
+    partitionOAPIndex.clearOldValues(threshTime)
     logDebug("current partition files: \n" +
       indexInfoStatusSeq.map{case indexInfoStatus: OapIndexInfoStatus =>
         "partition file: " + indexInfoStatus.path +
           " use index: " + indexInfoStatus.useIndex + "\n"}.mkString("\n"))
     val indexStatusRawData = OapIndexInfoStatusSerDe.serialize(indexInfoStatusSeq)
-    val threshTime = System.currentTimeMillis()
-    partitionOAPIndex.clearOldValues(threshTime)
     indexStatusRawData
   }
   def update(indexInfo: SparkListenerOapIndexInfoUpdate): Unit = {
     val indexStatusRawData = OapIndexInfoStatusSerDe.deserialize(indexInfo.oapIndexInfo)
-    logInfo("host " + indexInfo.hostName + " executor id:" + indexInfo.executorId)
     indexStatusRawData.foreach {oapIndexInfo =>
-      logInfo("\n partition file: " + oapIndexInfo.path +
-        " use OAP index: " + oapIndexInfo.useIndex)}
+      logInfo("\nhost " + indexInfo.hostName + " executor id: " + indexInfo.executorId +
+        "\npartition file: " + oapIndexInfo.path + " use OAP index: " + oapIndexInfo.useIndex)}
   }
 }
 

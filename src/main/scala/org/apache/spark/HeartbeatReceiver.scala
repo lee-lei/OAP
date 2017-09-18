@@ -148,7 +148,7 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
         context.reply(HeartbeatResponse(reregisterBlockManager = true))
       }
 
-      // Right now there are two user events. First is for fiber cache infor update.
+      // Right now there are two extended user events. First is for fiber cache infor update.
       // Second is for oap index infor update.
       sc.listenerBus.post(SparkListenerCustomInfoUpdate(blockManagerId.host, executorId,
         customizedInfo.head))

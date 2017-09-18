@@ -134,10 +134,9 @@ private[spark] class Executor(
    */
   private var heartbeatFailures = 0
 
-  // TODO: make it configurable
   private val customInfoClassNameSeq = Seq(
-  "org.apache.spark.sql.execution.datasources.oap.filecache.OapFiberCacheHeartBeatMessager",
-  "org.apache.spark.sql.execution.datasources.oap.io.OapIndexHeartBeatMessager")
+    "org.apache.spark.sql.execution.datasources.oap.filecache.OapFiberCacheHeartBeatMessager",
+    "org.apache.spark.sql.execution.datasources.oap.io.OapIndexHeartBeatMessager")
   private val customManagerSeq: Seq[CustomManager] = customInfoClassNameSeq.map(cIC =>
     Utils.classForName(cIC).newInstance().asInstanceOf[CustomManager])
 
