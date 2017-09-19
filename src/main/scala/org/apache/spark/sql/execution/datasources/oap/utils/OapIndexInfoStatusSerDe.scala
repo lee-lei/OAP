@@ -28,9 +28,9 @@ import org.json4s.JsonDSL._
  * This is user defined Json protocol for SerDe, here the format of Json outputs are like
  * following:
  *   {"oapIndexInfoStatusRawDataArray" :
- *     ["partitionFilePath" : ""
- *      "useOapIndex" : "true/false"]
- *     [] ... []}
+ *     [{"partitionFilePath" : ""
+ *      "useOapIndex" : "true/false"}
+ *     {} ... {}]}
  */
 
 private[oap] object OapIndexInfoStatusSerDe extends SerDe[String, Seq[OapIndexInfoStatus]] {
