@@ -18,10 +18,10 @@
 package org.apache.spark.sql.execution.datasources.oap.listener
 
 import org.apache.spark.scheduler.{SparkListener, SparkListenerOapIndexInfoUpdate}
-import org.apache.spark.sql.execution.datasources.oap.io.OapDataReader
+import org.apache.spark.sql.execution.datasources.oap.io.OapIndexInfo
 
 class OapIndexInfoListener extends SparkListener {
   override def onOapIndexInfoUpdate(indexInfo: SparkListenerOapIndexInfoUpdate): Unit = {
-    OapDataReader.update(indexInfo)
+    OapIndexInfo.update(indexInfo)
   }
 }

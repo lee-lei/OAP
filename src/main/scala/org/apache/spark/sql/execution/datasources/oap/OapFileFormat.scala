@@ -273,7 +273,7 @@ private[sql] class OapFileFormat extends FileFormat
               _.statistics), filter, m.schema))) {
             Iterator.empty
           } else {
-            OapDataReader.partitionOAPIndex.put(file.filePath, false)
+            OapIndexInfo.partitionOapIndex.put(file.filePath, false)
             val iter = new OapDataReader(
               new Path(new URI(file.filePath)), m, filterScanner, requiredIds)
               .initialize(conf, options)

@@ -150,10 +150,16 @@ private[spark] class HeartbeatReceiver(sc: SparkContext, clock: Clock)
 
       // Right now there are two extended user events. First is for fiber cache infor update.
       // Second is for oap index infor update.
-      sc.listenerBus.post(SparkListenerCustomInfoUpdate(blockManagerId.host, executorId,
-        customizedInfo.head))
-      sc.listenerBus.post(SparkListenerOapIndexInfoUpdate(blockManagerId.host, executorId,
-        customizedInfo.last))
+      // The cusInfo is serialized string for fiber and oap index status.
+      customizedInfo.foreach { cusInfo =>
+        if (cusInfo.contains("fiberFilePath")) {
+          sc.listenerBus.post(SparkListenerCustomInfoUpdate(blockManagerId.host, executorId,
+            cusInfo))
+        } else if (cusInfo.contains("useOapIndex")) {
+          sc.listenerBus.post(SparkListenerOapIndexInfoUpdate(blockManagerId.host, executorId,
+            cusInfo))
+        }
+      }
   }
 
   /**

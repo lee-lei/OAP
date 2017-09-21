@@ -40,7 +40,7 @@ import org.apache.spark.util.TimeStampedHashMap
 
 class OapIndexHeartBeatMessager extends CustomManager with Logging {
   override def status(conf: SparkConf): String = {
-    OapDataReader.status
+    OapIndexInfo.status
   }
 }
 
@@ -164,12 +164,12 @@ private[oap] class OapDataWriter(
 
 private[oap] case class OapIndexInfoStatus(path: String, useIndex: Boolean)
 
-private[oap] object OapDataReader extends Logging {
-  val partitionOAPIndex = new TimeStampedHashMap[String, Boolean](updateTimeStampOnGet = true)
+private[oap] object OapIndexInfo extends Logging {
+  val partitionOapIndex = new TimeStampedHashMap[String, Boolean](updateTimeStampOnGet = true)
   def status: String = {
-    val indexInfoStatusSeq = partitionOAPIndex.map(kv => OapIndexInfoStatus(kv._1, kv._2)).toSeq
+    val indexInfoStatusSeq = partitionOapIndex.map(kv => OapIndexInfoStatus(kv._1, kv._2)).toSeq
     val threshTime = System.currentTimeMillis()
-    partitionOAPIndex.clearOldValues(threshTime)
+    partitionOapIndex.clearOldValues(threshTime)
     logDebug("current partition files: \n" +
       indexInfoStatusSeq.map{case indexInfoStatus: OapIndexInfoStatus =>
         "partition file: " + indexInfoStatus.path +
@@ -251,7 +251,7 @@ private[oap] class OapDataReader(
                   else fs.toArray
                 }
 
-                OapDataReader.partitionOAPIndex.put(path.toString(), true)
+                OapIndexInfo.partitionOapIndex.put(path.toString(), true)
                 logInfo("Partition File " + path.toString() + " will use OAP index.\n")
                 fileScanner.iterator(conf, requiredIds, rowIDs)
               case StaticsAnalysisResult.SKIP_INDEX =>
