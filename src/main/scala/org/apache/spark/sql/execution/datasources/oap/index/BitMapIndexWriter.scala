@@ -133,27 +133,37 @@ private[oap] class BitMapIndexWriter(
           rowCnt += 1
         }
       }
-      // generate the bitset hashmap
-      val hashMap = new mutable.HashMap[InternalRow, BitSet]()
+      // generate the bitset listBitMap
+      val listBitMap = new mutable.ListBuffer[BitSet]()
       val ordering = GenerateOrdering.create(keySchema)
       val sortedKeyList = tmpMap.keySet.toList.sorted(ordering)
       sortedKeyList.foreach(sortedKey => {
         val bs = new BitSet(rowCnt)
         tmpMap.get(sortedKey).get.foreach(bs.set)
-        hashMap.put(sortedKey, bs)
+        listBitMap.append(bs)
       })
       val header = writeHead(writer, IndexFile.INDEX_VERSION)
-      // serialize hashMap and get length
-      val writeBuf = new ByteArrayOutputStream()
-      val out = new ObjectOutputStream(writeBuf)
-      out.writeObject(hashMap)
-      out.flush()
-      val objLen = writeBuf.size()
-      // write byteArray length and byteArray
-      IndexUtils.writeInt(writer, objLen)
-      writer.write(writeBuf.toByteArray)
-      out.close()
-      val indexEnd = 4 + objLen + header
+      // serialize sortedKeyList and get length
+      val writeSortedKeyListBuf = new ByteArrayOutputStream()
+      val sortedKeyListOut = new ObjectOutputStream(writeSortedKeyListBuf)
+      sortedKeyListOut.writeObject(sortedKeyList)
+      sortedKeyListOut.flush()
+      val sortedKeyListObjLen = writeSortedKeyListBuf.size()
+      // write sortedKeyList byteArray length and byteArray
+      IndexUtils.writeInt(writer, sortedKeyListObjLen)
+      writer.write(writeSortedKeyListBuf.toByteArray)
+      sortedKeyListOut.close()
+      // serialize listBitMap and get length
+      val writeBitMapBuf = new ByteArrayOutputStream()
+      val bitMapOut = new ObjectOutputStream(writeBitMapBuf)
+      bitMapOut.writeObject(listBitMap)
+      bitMapOut.flush()
+      val bitMapObjLen = writeBitMapBuf.size()
+      // write listBitMap byteArray length and byteArray
+      IndexUtils.writeInt(writer, bitMapObjLen)
+      writer.write(writeBitMapBuf.toByteArray)
+      bitMapOut.close()
+      val indexEnd = 4 + sortedKeyListObjLen + 4 + bitMapObjLen + header
       var offset: Long = indexEnd
 
       statisticsManager.write(writer)
@@ -162,7 +172,6 @@ private[oap] class BitMapIndexWriter(
       IndexUtils.writeLong(writer, indexEnd) // statistics start pos
       IndexUtils.writeLong(writer, offset) // index file end offset
       IndexUtils.writeLong(writer, indexEnd) // dataEnd
-
 
       // writer.close()
       taskReturn :+ IndexBuildResult(filename, rowCnt, "", new Path(filename).getParent.toString)
