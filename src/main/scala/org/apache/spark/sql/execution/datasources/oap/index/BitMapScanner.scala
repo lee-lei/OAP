@@ -88,7 +88,7 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
     this.ordering = GenerateOrdering.create(keySchema)
 
     // get sorted key list and generate final bitset
-    val sortedKeyList = hashMap.keySet.toList.sorted(this.ordering)
+    val sortedKeyList = hashMap.keySet.toList
     val bitMapArray = intervalArray.flatMap(range => {
       val startIdx = if (range.start == IndexScanner.DUMMY_KEY_START) {
         // diff from which startIdx not found, so here startIdx = -2

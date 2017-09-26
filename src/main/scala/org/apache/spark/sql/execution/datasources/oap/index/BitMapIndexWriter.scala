@@ -27,6 +27,7 @@ import org.apache.hadoop.mapreduce.Job
 import org.apache.spark.{SparkException, TaskContext}
 import org.apache.spark.rdd.InputFileNameHolder
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.catalyst.expressions.FromUnsafeProjection
 import org.apache.spark.sql.execution.datasources.WriteResult
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
@@ -134,10 +135,12 @@ private[oap] class BitMapIndexWriter(
       }
       // generate the bitset hashmap
       val hashMap = new mutable.HashMap[InternalRow, BitSet]()
-      tmpMap.foreach(kv => {
+      val ordering = GenerateOrdering.create(keySchema)
+      val sortedKeyList = tmpMap.keySet.toList.sorted(ordering)
+      sortedKeyList.foreach(sortedKey => {
         val bs = new BitSet(rowCnt)
-        kv._2.foreach(bs.set)
-        hashMap.put(kv._1, bs)
+        tmpMap.get(sortedKey).get.foreach(bs.set)
+        hashMap.put(sortedKey, bs)
       })
       val header = writeHead(writer, IndexFile.INDEX_VERSION)
       // serialize hashMap and get length
