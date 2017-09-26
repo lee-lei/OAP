@@ -19,7 +19,14 @@ package org.apache.spark.sql.execution.datasources.oap.index
 
 private[oap] abstract class BitmapIndexInterfaces {
 
-  // TODO: Add the arguments and return types.
+  // Below three interfaces will be implemented first.
+  def BitmapIndexSaveSortedKeySet
+  // TODO: The sorted keyset can be cached either in fibers(DRAM)
+  // or NVRAM if no rooms in fiber caches.
+  def BitmapIndexGetSortedKeySet
+  // The sorted keyset require to be updated accordingly once the index is updated or refreshed.
+  def BitmapIndexUpdateSortedKeySet
+
   def BitmapIndexOpenFile
   def BitmapIndexCloseFile
 
@@ -39,14 +46,6 @@ private[oap] abstract class BitmapIndexInterfaces {
   def BitmapIndexSaveToFibers
   // If the index is updated or refreshed, the index fibers will be flushed accordingly.
   def BitmapIndexFlushFibers
-  // TODO: directly cache hashmap to NVRAM to avoid serialization/deserialization,
-  // since it's byte addressable.
-
-  // The sorted keyset can be cached either in fibers(DRAM) or NVRAM if no rooms in fiber caches.
-  def BitmapIndexGetSortedKeySet
-  // The sorted keyset can be updated into fibers or NVRAM once the index is updated or refreshed.
-  def BitmapIndexUpdateSortedKeySet
-  def BitmapIndexSaveSortedKeySet
 
   // Below are used to compress/decompress the entire index files.
   def BitmapIndexCompress
