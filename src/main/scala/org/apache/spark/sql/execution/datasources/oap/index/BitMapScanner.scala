@@ -71,36 +71,25 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
 
   def open(indexData: ChunkedByteBuffer, version: Int = IndexFile.INDEX_VERSION): Unit = {
     this.ordering = GenerateOrdering.create(keySchema)
-    // deserialize sortedKeyList[InternalRow] from index file
-    val (sortedKeyListObj, sortedKeyListOffset): (Object, Long) = indexData.chunks.head match {
+    // Deserialize sortedKeyList[InternalRow] from index file
+    val (baseObj, sortedKeyListOffset): (Object, Long) = indexData.chunks.head match {
       case buf: DirectBuffer => (null, buf.address() + IndexFile.indexFileHeaderLength)
       case _ => (indexData.toArray, Platform.BYTE_ARRAY_OFFSET + IndexFile.indexFileHeaderLength)
     }
-    // get the byte number first
-    val sortedKeyListObjLength = Platform.getInt(sortedKeyListObj, sortedKeyListOffset)
-    val byteArrayStart = sortedKeyListOffset + 4
+    // Get the byte number first
+    val sortedKeyListObjLength = Platform.getInt(baseObj, sortedKeyListOffset)
+    val sortedKeyListByteArrayStart = sortedKeyListOffset + 4
     val byteArray = (0 until sortedKeyListObjLength).map(i => {
-      Platform.getByte(sortedKeyListObj, byteArrayStart + i)
+      Platform.getByte(baseObj, sortedKeyListByteArrayStart + i)
     }).toArray
     val inputStream = new ByteArrayInputStream(byteArray)
     val in = new ObjectInputStream(inputStream)
     val sortedKeyList = in.readObject().asInstanceOf[immutable.List[InternalRow]]
 
-    // deserialize listBitMap from index file
-    val (bitmapObj, bitmapOffset): (Object, Long) = indexData.chunks.head match {
-      case buf: DirectBuffer => (null, buf.address() + IndexFile.indexFileHeaderLength +
-        4 + sortedKeyListObjLength)
-      case _ => (indexData.toArray, Platform.BYTE_ARRAY_OFFSET + IndexFile.indexFileHeaderLength +
-        4 + sortedKeyListObjLength)
-    }
-    val bitmapObjLength = Platform.getInt(bitmapObj, bitmapOffset)
-    val bitmapByteArrayStart = bitmapOffset + 4
-    val bitmapByteArray = (0 until bitmapObjLength).map(i => {
-      Platform.getByte(bitmapObj, bitmapByteArrayStart + i)
-    }).toArray
-    val bitmapInputStream = new ByteArrayInputStream(bitmapByteArray)
-    val bitmapIn = new ObjectInputStream(bitmapInputStream)
-    val listBitMap = bitmapIn.readObject().asInstanceOf[mutable.ListBuffer[BitSet]]
+    // deserialize BitMap size from index file
+    val elementBitMapSize = Platform.getInt(baseObj, sortedKeyListByteArrayStart +
+      sortedKeyListObjLength)
+    var elementBitmapByteArrayStart = sortedKeyListByteArrayStart + sortedKeyListObjLength + 4
 
     val bitMapArray = intervalArray.flatMap(range => {
       val startIdx = if (range.start == IndexScanner.DUMMY_KEY_START) {
@@ -129,7 +118,19 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
         // range not fond in cur bitmap, return empty for performance consideration
         Array.empty[BitSet]
       } else {
-        listBitMap.slice(startIdx, endIdx + 1)
+        val partialBitMap = new mutable.ListBuffer[BitSet]()
+        elementBitmapByteArrayStart += startIdx * elementBitMapSize
+        (startIdx until endIdx + 1).map( element => {
+          val elementBitmapByteArray = (0 until elementBitMapSize).map(i => {
+            Platform.getByte(baseObj, elementBitmapByteArrayStart + i)
+          }).toArray
+          val bitmapInputStream = new ByteArrayInputStream(elementBitmapByteArray)
+          val bitmapIn = new ObjectInputStream(bitmapInputStream)
+          val elementBitMap = bitmapIn.readObject().asInstanceOf[BitSet]
+          partialBitMap.append(elementBitMap)
+          elementBitmapByteArrayStart += elementBitMapSize
+        })
+        partialBitMap
       }
     })
 

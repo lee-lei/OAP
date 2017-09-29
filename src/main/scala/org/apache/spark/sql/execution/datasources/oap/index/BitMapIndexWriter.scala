@@ -133,37 +133,47 @@ private[oap] class BitMapIndexWriter(
           rowCnt += 1
         }
       }
-      // generate the bitset listBitMap
-      val listBitMap = new mutable.ListBuffer[BitSet]()
       val ordering = GenerateOrdering.create(keySchema)
       val sortedKeyList = tmpMap.keySet.toList.sorted(ordering)
-      sortedKeyList.foreach(sortedKey => {
-        val bs = new BitSet(rowCnt)
-        tmpMap.get(sortedKey).get.foreach(bs.set)
-        listBitMap.append(bs)
-      })
       val header = writeHead(writer, IndexFile.INDEX_VERSION)
-      // serialize sortedKeyList and get length
+      // Serialize sortedKeyList and get length
       val writeSortedKeyListBuf = new ByteArrayOutputStream()
       val sortedKeyListOut = new ObjectOutputStream(writeSortedKeyListBuf)
       sortedKeyListOut.writeObject(sortedKeyList)
       sortedKeyListOut.flush()
       val sortedKeyListObjLen = writeSortedKeyListBuf.size()
-      // write sortedKeyList byteArray length and byteArray
+      // Write sortedKeyList byteArray length and byteArray
       IndexUtils.writeInt(writer, sortedKeyListObjLen)
       writer.write(writeSortedKeyListBuf.toByteArray)
       sortedKeyListOut.close()
-      // serialize listBitMap and get length
-      val writeBitMapBuf = new ByteArrayOutputStream()
-      val bitMapOut = new ObjectOutputStream(writeBitMapBuf)
-      bitMapOut.writeObject(listBitMap)
-      bitMapOut.flush()
-      val bitMapObjLen = writeBitMapBuf.size()
-      // write listBitMap byteArray length and byteArray
-      IndexUtils.writeInt(writer, bitMapObjLen)
-      writer.write(writeBitMapBuf.toByteArray)
-      bitMapOut.close()
-      val indexEnd = 4 + sortedKeyListObjLen + 4 + bitMapObjLen + header
+
+      // Generate the fixed size bitset
+      val bs = new BitSet(rowCnt)
+      val firstKey = sortedKeyList.head
+      tmpMap.get(firstKey).get.foreach(bs.set)
+      val firstBitMapBuf = new ByteArrayOutputStream()
+      val firstBitMapOut = new ObjectOutputStream(firstBitMapBuf)
+      firstBitMapOut.writeObject(bs)
+      val elementBitMapSize = firstBitMapBuf.size
+      firstBitMapOut.close()
+      // Write the single bitmap size used by partial loading during index scanning.
+      IndexUtils.writeInt(writer, elementBitMapSize)
+
+      // Serialize and write each BitMap
+      sortedKeyList.foreach(sortedKey => {
+        tmpMap.get(sortedKey).get.foreach(bs.set)
+        val bsWriteBitMapBuf = new ByteArrayOutputStream()
+        val bsBitMapOut = new ObjectOutputStream(bsWriteBitMapBuf)
+        bsBitMapOut.writeObject(bs)
+        bsBitMapOut.flush()
+        writer.write(bsWriteBitMapBuf.toByteArray)
+        bsBitMapOut.close()
+      })
+      val bitmapCount = sortedKeyList.length
+      val totalBitMapLength = bitmapCount * elementBitMapSize
+      // The first 4 is for sortedKeyListObjLen value.
+      // The second 4 is for elementBitMapSize value.
+      val indexEnd = header + 4 + sortedKeyListObjLen + 4 + totalBitMapLength
       var offset: Long = indexEnd
 
       statisticsManager.write(writer)
