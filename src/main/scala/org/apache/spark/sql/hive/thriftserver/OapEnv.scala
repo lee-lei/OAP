@@ -22,8 +22,7 @@ import java.io.PrintStream
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{OapSession, SQLContext}
-import org.apache.spark.sql.execution.datasources.oap.listener.FiberInfoListener
-import org.apache.spark.sql.execution.datasources.oap.listener.OapIndexInfoListener
+import org.apache.spark.sql.execution.datasources.oap.listener.{FiberInfoListener, OapIndexInfoListener}
 import org.apache.spark.sql.hive.{HiveUtils, OapSessionState}
 import org.apache.spark.util.Utils
 

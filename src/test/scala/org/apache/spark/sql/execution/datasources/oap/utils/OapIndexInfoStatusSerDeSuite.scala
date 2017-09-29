@@ -17,10 +17,10 @@
 
 package org.apache.spark.sql.execution.datasources.oap.utils
 
+import org.json4s.jackson.JsonMethods._
+
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.execution.datasources.oap.io.OapIndexInfoStatus
-
-import org.json4s.jackson.JsonMethods._
 
 class OapIndexInfoStatusSerDeSuite extends SparkFunSuite {
   private def assertStringEquals(json1: String, json2: String) {

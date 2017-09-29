@@ -18,14 +18,14 @@
 package org.apache.spark.sql.execution.datasources.oap.io
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.spark.executor.custom.CustomManager
 import org.apache.hadoop.fs.{FSDataOutputStream, Path}
 import org.apache.parquet.format.CompressionCodec
 import org.apache.parquet.io.api.Binary
 
+import org.apache.spark.executor.custom.CustomManager
 import org.apache.spark.internal.Logging
-import org.apache.spark.scheduler.SparkListenerOapIndexInfoUpdate
 import org.apache.spark.SparkConf
+import org.apache.spark.scheduler.SparkListenerOapIndexInfoUpdate
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.oap.{DataSourceMeta, OapFileFormat}
 import org.apache.spark.sql.execution.datasources.oap.filecache.DataFiberBuilder
@@ -35,7 +35,6 @@ import org.apache.spark.sql.execution.datasources.oap.utils.OapIndexInfoStatusSe
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.Platform
-
 import org.apache.spark.util.TimeStampedHashMap
 
 class OapIndexHeartBeatMessager extends CustomManager with Logging {

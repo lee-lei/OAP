@@ -17,12 +17,11 @@
 
 package org.apache.spark.sql.execution.datasources.oap.utils
 
-import org.apache.spark.sql.execution.datasources.oap.io.OapIndexInfoStatus
-
 import org.json4s.DefaultFormats
 import org.json4s.JsonAST._
 import org.json4s.JsonDSL._
 
+import org.apache.spark.sql.execution.datasources.oap.io.OapIndexInfoStatus
 
 /**
  * This is user defined Json protocol for SerDe, here the format of Json outputs are like
@@ -32,7 +31,6 @@ import org.json4s.JsonDSL._
  *      "useOapIndex" : "true/false"}
  *     {} ... {}]}
  */
-
 private[oap] object OapIndexInfoStatusSerDe extends SerDe[String, Seq[OapIndexInfoStatus]] {
   import org.json4s.jackson.JsonMethods._
 
@@ -42,8 +40,8 @@ private[oap] object OapIndexInfoStatusSerDe extends SerDe[String, Seq[OapIndexIn
   }
 
   override def deserialize(json: String): Seq[OapIndexInfoStatus] = {
-    (parse(json) \
-      "oapIndexInfoStatusRawDataArray").extract[List[JValue]].map(indexStatusRawDataFromJson)
+    (parse(json) \ "oapIndexInfoStatusRawDataArray").extract[List[JValue]].map(
+      indexStatusRawDataFromJson)
   }
 
   private implicit val format = DefaultFormats
