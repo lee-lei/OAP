@@ -40,17 +40,17 @@ private[index] class BitmapIndexRecordWriter(
 
   @transient private lazy val genericProjector = FromUnsafeProjection(keySchema)
 
-  private val rowMapRb = new mutable.HashMap[InternalRow, MutableRoaringBitmap]()
+  private val rowMapBitmap = new mutable.HashMap[InternalRow, MutableRoaringBitmap]()
   private var recordCount: Int = 0
 
   override def write(key: Void, value: InternalRow): Unit = {
     val v = genericProjector(value).copy()
-    if (!rowMapRb.contains(v)) {
-      val rb = new MutableRoaringBitmap()
-      rb.add(recordCount)
-      rowMapRb.put(v, rb)
+    if (!rowMapBitmap.contains(v)) {
+      val bm = new MutableRoaringBitmap()
+      bm.add(recordCount)
+      rowMapBitmap.put(v, bm)
     } else {
-      rowMapRb.get(v).get.add(recordCount)
+      rowMapBitmap.get(v).get.add(recordCount)
     }
     recordCount += 1
   }
@@ -65,72 +65,67 @@ private[index] class BitmapIndexRecordWriter(
     val statisticsManager = new StatisticsManager
     statisticsManager.initialize(BitMapIndexType, keySchema, configuration)
 
-    /* The general layout for bitmap index file is below:
+    /* The general layout for bitmap index file is below.
      * header (8 bytes)
      * sorted key list size (4 bytes)
-     * sorted key list
+     * sorted key list (sorted bitmap index column)
+     * bitmap entries (each entry size is varied due to different BitSet implementations)
+     * offset array for the above each bitmap entry (each offset element is fixed 4 bytes)
      * total bitmap size (4 bytes)
-     * roaring bitmaps (each entry size is varied due to run length encoding and compression)
-     * offset array for the above each bitmap entry (each element is fixed 4 bytes)
-     * TODO: 1. Save the total bitmap size into somewhere (e.g. StatisticsManager) to avoid
-     *          go through bitmap entries twice to improve bitmap index writing efficiency.
+     * bitmap index footer (not changed than before)
+     * TODO: 1. Use BitSet scala version to replace roaring bitmap.
      *       2. Optimize roaring bitmap usage to further reduce index file size.
      *       3. Explore an approach to partial load key set during bitmap scanning.
      */
-    val ordering = GenerateOrdering.create(keySchema)
-    val sortedKeyList = rowMapRb.keySet.toList.sorted(ordering)
     val header = writeHead(writer, IndexFile.INDEX_VERSION)
+
+    val ordering = GenerateOrdering.create(keySchema)
+    val sortedKeyList = rowMapBitmap.keySet.toList.sorted(ordering)
     // Serialize sortedKeyList and get length
     val writeSortedKeyListBuf = new ByteArrayOutputStream()
     val sortedKeyListOut = new ObjectOutputStream(writeSortedKeyListBuf)
     sortedKeyListOut.writeObject(sortedKeyList)
     sortedKeyListOut.flush()
     val sortedKeyListObjLen = writeSortedKeyListBuf.size()
+
     // Write sortedKeyList byteArray length and byteArray
     IndexUtils.writeInt(writer, sortedKeyListObjLen)
     writer.write(writeSortedKeyListBuf.toByteArray)
     sortedKeyListOut.close()
-    // The second 4 is for the reserved 4 bytes for total rb size.
-    val rbOffset = header + 4 + sortedKeyListObjLen + 4
-    val rbOffsetListBuffer = new mutable.ListBuffer[Int]()
-    // Get the total rb size.
-    var totalRbSize = 0
+
+    val bmOffset = header + 4 + sortedKeyListObjLen
+    val bmOffsetListBuffer = new mutable.ListBuffer[Int]()
+    // Get the total bm size, and write each bitmap entries one by one.
+    var totalBitmapSize = 0
     sortedKeyList.foreach(sortedKey => {
-      rbOffsetListBuffer.append(rbOffset + totalRbSize)
-      val rb = rowMapRb.get(sortedKey).get
-      rb.runOptimize()
-      val rbWriteBitMapBuf = new ByteArrayOutputStream()
-      val rbBitMapOut = new DataOutputStream(rbWriteBitMapBuf)
-      rb.serialize(rbBitMapOut)
-      rbBitMapOut.flush()
-      totalRbSize += rbWriteBitMapBuf.size
-      rbBitMapOut.close()
+      bmOffsetListBuffer.append(bmOffset + totalBitmapSize)
+      val bm = rowMapBitmap.get(sortedKey).get
+      bm.runOptimize()
+      val bmWriteBitMapBuf = new ByteArrayOutputStream()
+      val bmBitMapOut = new DataOutputStream(bmWriteBitMapBuf)
+      bm.serialize(bmBitMapOut)
+      bmBitMapOut.flush()
+      totalBitmapSize += bmWriteBitMapBuf.size
+      writer.write(bmWriteBitMapBuf.toByteArray)
+      bmBitMapOut.close()
     })
-    rbOffsetListBuffer.append(rbOffset + totalRbSize)
-    IndexUtils.writeInt(writer, totalRbSize)
-    sortedKeyList.foreach(sortedKey => {
-      val rb = rowMapRb.get(sortedKey).get
-      rb.runOptimize()
-      val rbWriteBitMapBuf = new ByteArrayOutputStream()
-      val rbBitMapOut = new DataOutputStream(rbWriteBitMapBuf)
-      rb.serialize(rbBitMapOut)
-      rbBitMapOut.flush()
-      writer.write(rbWriteBitMapBuf.toByteArray)
-      rbBitMapOut.close()
-    })
-    // Save the offset for each rb entry to fast partially load bitmap entries during scanning.
-    rbOffsetListBuffer.foreach(offsetIdx =>
+    bmOffsetListBuffer.append(bmOffset + totalBitmapSize)
+
+    // write offset for each bitmap entry to fast partially load bitmap entries during scanning.
+    bmOffsetListBuffer.foreach(offsetIdx =>
       IndexUtils.writeInt(writer, offsetIdx))
-    val rbOffsetTotalSize = 4 * rbOffsetListBuffer.size
-    val indexEnd = rbOffset + totalRbSize + rbOffsetTotalSize
-    var offset: Long = indexEnd
+    val bmOffsetTotalSize = 4 * bmOffsetListBuffer.size
+
+    // The index end is also the starting position of stats file.
+    val indexEnd = bmOffset + totalBitmapSize + bmOffsetTotalSize
 
     statisticsManager.write(writer)
 
-    // write index file footer
-    IndexUtils.writeLong(writer, indexEnd) // statistics start pos
-    IndexUtils.writeLong(writer, offset) // index file end offset
-    IndexUtils.writeLong(writer, indexEnd) // dataEnd
+    // The bitmap total size is four bytes at the beginning of the footer.
+    IndexUtils.writeInt(writer, totalBitmapSize)
+    IndexUtils.writeLong(writer, indexEnd)
+    IndexUtils.writeLong(writer, indexEnd)
+    IndexUtils.writeLong(writer, indexEnd)
   }
 
   private def writeHead(writer: OutputStream, version: Int): Int = {
