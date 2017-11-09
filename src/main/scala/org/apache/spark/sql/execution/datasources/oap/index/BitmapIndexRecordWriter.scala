@@ -27,12 +27,13 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.mapreduce.{RecordWriter, TaskAttemptContext}
 import org.roaringbitmap.buffer.MutableRoaringBitmap
 
+import org.apache.parquet.bytes.LittleEndianDataOutputStream
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.catalyst.expressions.FromUnsafeProjection
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics.StatisticsManager
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types._
 
 /* Below is the bitmap index general layout and sections.
  * #section id     section size(B) section description
@@ -41,8 +42,9 @@ import org.apache.spark.sql.types.StructType
  *    3              varied          bitmap entry list
  *    4              varied          bitmap entry offset list
  *    5              varied          keep the original statistics, not changed than before.
- *    6              36(4*8+4)       footer to save total key list size, total entry list size
- *                                   and total offset list size, and also the original index end.
+ *    6              40(5*8)         footer to save total key list size and length, total entry
+ *                                   list size and total offset list size, and also the original
+ *                                   index end.
  *
  * TODO: 1. Bitmap index is suitable for the enumeration columns which actually has not many
  *          unique values, thus we will load the key list and offset list respectively as a
@@ -52,7 +54,7 @@ import org.apache.spark.sql.types.StructType
  *          and cache each targeted bitmap entry or several consecutive bitmap entries as the
  *          partialy loading unit. It will depend on the following benchmark profiling result.
  */
-private[index] class BitmapIndexRecordWriter(
+private[oap] class BitmapIndexRecordWriter(
     configuration: Configuration,
     writer: OutputStream,
     keySchema: StructType) extends RecordWriter[Void, InternalRow] {
@@ -70,6 +72,7 @@ private[index] class BitmapIndexRecordWriter(
   private var bmOffsetListBuffer: mutable.ListBuffer[Int] = _
 
   private var bmUniqueKeyListTotalSize: Int = _
+  private var bmUniqueKeyListCount: Int = _
   private var bmEntryListTotalSize: Int = _
   private var bmOffsetListTotalSize: Int = _
   private var bmIndexEnd: Int = _
@@ -93,18 +96,17 @@ private[index] class BitmapIndexRecordWriter(
 
   private def writeUniqueKeyList(): Unit = {
     val ordering = GenerateOrdering.create(keySchema)
+    // Currently OAP index type supports the column with one single field.
+    assert(keySchema.fields.size == 1)
     bmUniqueKeyList = rowMapBitmap.keySet.toList.sorted(ordering)
-    // Serialize bmUniqueKeyList and get length
     val bos = new ByteArrayOutputStream()
-    // TODO: Below will be replaced with directly writing key values into byte array soon.
-    val oos = new ObjectOutputStream(bos)
-    oos.writeObject(bmUniqueKeyList)
-    oos.flush()
+    val leDos = new LittleEndianDataOutputStream(bos)
+    bmUniqueKeyList.foreach(key => {
+      IndexUtils.writeBasedOnDataType(leDos, key.get(0, keySchema.fields(0).dataType))
+    })
     bmUniqueKeyListTotalSize = bos.size()
-    // Write bmUniqueKeyList byteArray. The length will be writen in the footer.
+    bmUniqueKeyListCount = bmUniqueKeyList.size
     writer.write(bos.toByteArray)
-    oos.close()
-    bos.close()
   }
 
   private def writeBmEntryList(): Unit = {
@@ -145,6 +147,7 @@ private[index] class BitmapIndexRecordWriter(
     // Others keep back compatible and not changed than before.
     bmIndexEnd = bmEntryListOffset + bmEntryListTotalSize + bmOffsetListTotalSize
     IndexUtils.writeInt(writer, bmUniqueKeyListTotalSize)
+    IndexUtils.writeInt(writer, bmUniqueKeyListCount)
     IndexUtils.writeInt(writer, bmEntryListTotalSize)
     IndexUtils.writeInt(writer, bmOffsetListTotalSize)
     IndexUtils.writeLong(writer, bmIndexEnd)

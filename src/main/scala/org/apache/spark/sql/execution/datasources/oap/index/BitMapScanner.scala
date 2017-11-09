@@ -34,17 +34,18 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.oap._
 import org.apache.spark.sql.execution.datasources.oap.filecache._
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
+import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.Platform
-import org.apache.spark.util.collection.BitSet
 import org.apache.spark.util.io.ChunkedByteBuffer
 
 private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(idxMeta) {
 
   override def canBeOptimizedByStatistics: Boolean = true
 
-  private val BITMAP_FOOTER_SIZE = 4 * 8 + 4
+  private val BITMAP_FOOTER_SIZE = 5 * 8
 
   private var bmUniqueKeyListTotalSize: Int = _
+  private var bmUniqueKeyListCount: Int = _
   private var bmEntryListTotalSize: Int = _
   private var bmOffsetListTotalSize: Int = _
 
@@ -69,7 +70,7 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
   private var bmEntryListCache: CacheResult = _
   private var bmEntryListBuffer: Array[Byte] = _
 
-  @transient var bmRowIdIterator: Iterator[Integer] = Iterator[Integer]()
+  @transient private var bmRowIdIterator: Iterator[Integer] = Iterator[Integer]()
   private var empty: Boolean = _
 
   override def hasNext: Boolean = {
@@ -111,8 +112,9 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
     // In most cases, below cached is true.
     val baseBuffer = if (cr.cached) cr.buffer.toArray else bmFooterBuffer
     bmUniqueKeyListTotalSize = Platform.getInt(baseBuffer, Platform.BYTE_ARRAY_OFFSET)
-    bmEntryListTotalSize = Platform.getInt(baseBuffer, Platform.BYTE_ARRAY_OFFSET + 4)
-    bmOffsetListTotalSize = Platform.getInt(baseBuffer, Platform.BYTE_ARRAY_OFFSET + 8)
+    bmUniqueKeyListCount = Platform.getInt(baseBuffer, Platform.BYTE_ARRAY_OFFSET + 4)
+    bmEntryListTotalSize = Platform.getInt(baseBuffer, Platform.BYTE_ARRAY_OFFSET + 8)
+    bmOffsetListTotalSize = Platform.getInt(baseBuffer, Platform.BYTE_ARRAY_OFFSET + 12)
     // bmFooterBuffer is not used any more.
     bmFooterBuffer = null
   }
@@ -125,13 +127,20 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
     bmUniqueKeyListBuffer
   }
 
-  private def readBmUniqueKeyListFromCache(cr: CacheResult): immutable.List[InternalRow] = {
+  private def readBmUniqueKeyListFromCache(cr: CacheResult): mutable.ListBuffer[InternalRow] = {
     // In most cases, below cached is true.
     val baseBuffer = if (cr.cached) cr.buffer.toArray else bmUniqueKeyListBuffer
-    val bIs = new ByteArrayInputStream(baseBuffer)
-    val oIs = new ObjectInputStream(bIs)
-    // TODO: Below will be replaced with directly reading key values from byte array soon.
-    val uniqueKeyList = oIs.readObject().asInstanceOf[immutable.List[InternalRow]]
+    val uniqueKeyList = new mutable.ListBuffer[InternalRow]()
+    val (baseObj, baseOffset) = (baseBuffer, Platform.BYTE_ARRAY_OFFSET)
+    var curOffset = baseOffset
+    (0 until bmUniqueKeyListCount).map(idx => {
+      val (value, length) =
+        IndexUtils.readBasedOnDataType(baseObj, curOffset, keySchema.fields(0).dataType)
+      curOffset += length.toInt
+      val row = InternalRow.apply(value)
+      uniqueKeyList.append(row)
+    })
+    assert(uniqueKeyList.size == bmUniqueKeyListCount)
     // bmUniqueKeyListBuffer is not used any more.
     bmUniqueKeyListBuffer = null
     uniqueKeyList
@@ -263,7 +272,7 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
       if (limitScanEnabled()) {
         // Get N items from each index.
         bmRowIdIterator = bitmapList.flatMap(bm =>
-          bm.iterator.asScala.take(getLimitScanNum())).iterator
+          bm.iterator.asScala.take(getLimitScanNum)).iterator
       } else {
         var totalBm = new MutableRoaringBitmap()
         bitmapList.foreach(bm => totalBm.or(bm))
@@ -278,6 +287,8 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
   // TODO: If the index file is not changed, bypass the repetitive initialization for queries.
   override def initialize(dataPath: Path, conf: Configuration): IndexScanner = {
     assert(keySchema ne null)
+    // Currently OAP index type supports the column with one single field.
+    assert(keySchema.fields.size == 1)
     this.ordering = GenerateOrdering.create(keySchema)
     val idxPath = IndexUtils.indexFileFromDataFile(dataPath, meta.name, meta.time)
 
