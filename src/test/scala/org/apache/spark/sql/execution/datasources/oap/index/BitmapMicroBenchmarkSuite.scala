@@ -308,10 +308,10 @@ class BitmapMicroBenchmarkSuite extends QueryTest with SharedOapContext with Bef
   }
 
   private def getMetaDataAndFiberCaches(
+      fin: FSDataInputStream,
       idxPath: Path,
       conf: Configuration): (Int, WrappedFiberCache, WrappedFiberCache) = {
     val fs = idxPath.getFileSystem(conf)
-    val fin = fs.open(idxPath)
     val idxFileSize = fs.getFileStatus(idxPath).getLen
     val bmFooterOffset = idxFileSize.toInt - BITMAP_FOOTER_SIZE
     val bmFooterFiber = BitmapFiber(
@@ -347,10 +347,11 @@ class BitmapMicroBenchmarkSuite extends QueryTest with SharedOapContext with Bef
         if (fileName.toString.endsWith(OapFileFormat.OAP_INDEX_EXTENSION)) {
           val idxPath = new Path(fileName.toString)
           val conf = new Configuration()
-          val (keyCount, bmOffsetListCache, bmFooterCache) = getMetaDataAndFiberCaches(idxPath, conf)
           val fs = idxPath.getFileSystem(conf)
           val fin = fs.open(idxPath)
-          (0 until keyCount).map( idx => {
+          val (keyCount, bmOffsetListCache, bmFooterCache) =
+            getMetaDataAndFiberCaches(fin, idxPath, conf)
+          (0 until keyCount).map(idx => {
             val curIdxOffset = getIdxOffset(bmOffsetListCache.fc, 0L, idx)
             val nextIdxOffset = getIdxOffset(bmOffsetListCache.fc, 0L, idx + 1)
             val entrySize = nextIdxOffset - curIdxOffset
@@ -375,6 +376,7 @@ class BitmapMicroBenchmarkSuite extends QueryTest with SharedOapContext with Bef
                 wfc.release
             }
           })
+          fin.close
           bmFooterCache.release
           bmOffsetListCache.release
         }
@@ -401,9 +403,10 @@ class BitmapMicroBenchmarkSuite extends QueryTest with SharedOapContext with Bef
         if (fileName.toString.endsWith(OapFileFormat.OAP_INDEX_EXTENSION)) {
           val idxPath = new Path(fileName.toString)
           val conf = new Configuration()
-          val (keyCount, bmOffsetListCache, bmFooterCache) = getMetaDataAndFiberCaches(idxPath, conf)
           val fs = idxPath.getFileSystem(conf)
           val fin = fs.open(idxPath)
+          val (keyCount, bmOffsetListCache, bmFooterCache) =
+            getMetaDataAndFiberCaches(fin, idxPath, conf)
           usingRb match {
             case true =>
               val wfcSeq = (0 until keyCount).map(idx => {
@@ -431,14 +434,14 @@ class BitmapMicroBenchmarkSuite extends QueryTest with SharedOapContext with Bef
               val entryFiber = BitmapFiber(
                 () => loadBmEntry(fin, curIdxOffset, entrySize), idxPath.toString,
                 BitmapIndexSectionId.entryListSection, idx)
-              val wfc = new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
-              wfc
+              new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
             })
             val chunkList = OapBitmapFastAggregation.or(wfcSeq)
             ChunksInMultiFiberCachesIterator(chunkList).init.foreach(rowId =>
               if (rowId > maxRowIdNoRb) maxRowIdNoRb = rowId)
             wfcSeq.foreach(wfc => wfc.release)
           }
+          fin.close
           bmFooterCache.release
           bmOffsetListCache.release
         }
