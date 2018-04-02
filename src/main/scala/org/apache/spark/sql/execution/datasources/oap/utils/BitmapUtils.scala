@@ -53,7 +53,9 @@ private[oap] case class ChunksInMultiFiberCachesIterator(
   }
 }
 
-private[oap] object OapBitmapFastAggregation {
+// This will virtually link all the chunks in multi fiber caches in ascending order of chunk key.
+// It will provide the input for the above ChunksInMultiFiberCachesIterator class.
+private[oap] object BitmapUtils {
 
   // Just get array of the chunks across multi fiber caches in acending order of key.
   def or(wfcSeq: Seq[OapBitmapWrappedFiberCache]): ArrayBuffer[OapBitmapChunkInFiberCache] = {
@@ -78,12 +80,11 @@ private[oap] object OapBitmapFastAggregation {
       breakable {
         while (true) {
           val result = initialKey - nextKey
-          result match {
-            case res if res < 0 =>
+            if (result < 0) {
               initialIdx += 1
               if (initialIdx == finalChunkArray.length) break
               initialKey = finalChunkArray(initialIdx).getChunkKey
-            case res if res == 0 =>
+            } else if (result == 0) {
               // Just link the next chunk to be adjacent for traversing.
               finalChunkArray.insert(initialIdx, OapBitmapChunkInFiberCache(nextWfc, nextIdx))
               // Bypass the two adjacent chunks with equal keys.
@@ -92,7 +93,7 @@ private[oap] object OapBitmapFastAggregation {
               if (initialIdx == finalChunkArray.length || nextIdx == nextChunkLength) break
               initialKey = finalChunkArray(initialIdx).getChunkKey
               nextKey = nextChunkKeys(nextIdx)
-            case res if res > 0 =>
+            } else if (result > 0) {
               // Insert the next chunk with nextIdx from the next fiber cache.
               finalChunkArray.insert(initialIdx, OapBitmapChunkInFiberCache(nextWfc, nextIdx))
               initialIdx += 1
