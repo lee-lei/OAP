@@ -20,7 +20,11 @@ package org.apache.spark.sql.execution.datasources.oap.utils
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.Breaks._
 
-// The chunks are physically consecutive, so it doesn't require to set chunk offset.
+/* The chunks inside of one single fiber cache are physically consecutive,
+ * so it doesn't require to set chunk offset. This class is to directly get
+ * the row ID list recorded in all of the chunks of this single fiber cache
+ * in ascending order.
+ */
 private[oap] case class ChunksInSingleFiberCacheIterator(wfc: OapBitmapWrappedFiberCache)
   extends ChunksIterator {
 
@@ -35,7 +39,10 @@ private[oap] case class ChunksInSingleFiberCacheIterator(wfc: OapBitmapWrappedFi
   }
 }
 
-// The chunks are not physically consecutive, so it requires to set chunk offset.
+/* The chunks inside of different multi fiber cache are not physically consecutive, so it
+ * requires to set chunk offset for different fibers. This class is to directly get the row ID
+ * list recorded in all of the chunks in all of multi fiber caches in ascending order.
+ */
 private[oap] case class ChunksInMultiFiberCachesIterator(
     chunksInFc: ArrayBuffer[OapBitmapChunkInFiberCache])
   extends ChunksIterator {
@@ -53,8 +60,9 @@ private[oap] case class ChunksInMultiFiberCachesIterator(
   }
 }
 
-// This will virtually link all the chunks in multi fiber caches in ascending order of chunk key.
-// It will provide the input for the above ChunksInMultiFiberCachesIterator class.
+/* This method will virtually link all the chunks in multi fiber caches in ascending
+ * order of chunk key. It will provide the input for the above ChunksInMultiFiberCachesIterator.
+ */
 private[oap] object BitmapUtils {
 
   // Just get array of the chunks across multi fiber caches in acending order of key.
