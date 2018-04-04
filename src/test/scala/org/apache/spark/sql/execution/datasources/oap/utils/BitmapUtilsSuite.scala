@@ -17,10 +17,11 @@
 
 package org.apache.spark.sql.execution.datasources.oap.utils
 
-import java.io.File
+import java.io.{ByteArrayOutputStream, DataOutputStream, File, FileOutputStream}
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FSDataInputStream, Path}
+import org.roaringbitmap.RoaringBitmap
 import org.scalatest.BeforeAndAfterEach
 
 import org.apache.spark.sql.QueryTest
@@ -49,6 +50,12 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
   private val dataArray =
     Array(dataForRunChunk, dataForArrayChunk, dataForBitmapChunk, dataCombination)
 
+  private val seqForRunChunk = (1 to 9).toSeq
+  private val seqForArrayChunk = Seq(11, 13, 15, 17, 19)
+  private val seqForBitmapChunk = (20 to 10000).filter(_ % 2 == 1)
+  private val seqCombination =
+    seqForBitmapChunk ++ seqForArrayChunk ++ seqForRunChunk
+
   override def beforeEach(): Unit = {
     dir = Utils.createTempDir()
     val path = dir.getAbsolutePath
@@ -60,6 +67,73 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
   override def afterEach(): Unit = {
     sqlContext.dropTempTable("oap_test")
     dir.delete()
+  }
+
+  test("test ChunksInSingleFiberCacheIterator to get the expected row IDs") {
+    val seqArray =
+      Array(seqForRunChunk, seqForArrayChunk, seqForBitmapChunk, seqCombination)
+    seqArray.foreach(seqIdx => {
+      val subDir = Utils.createTempDir()
+      val rb = new RoaringBitmap()
+      seqIdx.foreach(rb.add)
+      val rbFile = subDir.getAbsolutePath + "rb.bin"
+      rb.runOptimize()
+      val rbFos = new FileOutputStream(rbFile)
+      val rbBos = new ByteArrayOutputStream()
+      val rbDos = new DataOutputStream(rbBos)
+      rb.serialize(rbDos)
+      rbBos.writeTo(rbFos)
+      rbBos.close()
+      rbDos.close()
+      rbFos.close()
+      val rbPath = new Path(rbFile)
+      val conf = new Configuration()
+      val fin = rbPath.getFileSystem(conf).open(rbPath)
+      val fileSize = rbPath.getFileSystem(conf).getFileStatus(rbPath).getLen
+      val rbFiber = BitmapFiber(() => loadBmSection(fin, 0, fileSize.toInt), rbPath.toString, 0, 0)
+      val wrappedFiberCache = new OapBitmapWrappedFiberCache(FiberCacheManager.get(rbFiber, conf))
+      wrappedFiberCache.init
+      var actualRowIdSeq = Seq.empty[Int]
+      ChunksInSingleFiberCacheIterator(wrappedFiberCache).init.foreach(rowId =>
+        actualRowIdSeq :+= rowId)
+      actualRowIdSeq.foreach(rowId => assert(seqIdx.contains(rowId) == true))
+      seqIdx.foreach(rowId => assert(actualRowIdSeq.contains(rowId) == true))
+      wrappedFiberCache.release
+      fin.close
+      subDir.delete
+    })
+  }
+
+  test("test ChunksInMultiFiberCachesIterator to get the expected row IDs") {
+    val seqArray =
+      Array(seqForRunChunk, seqForArrayChunk, seqForBitmapChunk)
+    val wrapperFiberCacheSeq = seqArray.map(seqIdx => {
+      val rb = new RoaringBitmap()
+      seqIdx.foreach(rb.add)
+      val rbFile = dir.getAbsolutePath + seqIdx.head.toString
+      rb.runOptimize()
+      val rbFos = new FileOutputStream(rbFile)
+      val rbBos = new ByteArrayOutputStream()
+      val rbDos = new DataOutputStream(rbBos)
+      rb.serialize(rbDos)
+      rbBos.writeTo(rbFos)
+      rbBos.close()
+      rbDos.close()
+      rbFos.close()
+      val rbPath = new Path(rbFile)
+      val conf = new Configuration()
+      val fin = rbPath.getFileSystem(conf).open(rbPath)
+      val rbFileSize = rbPath.getFileSystem(conf).getFileStatus(rbPath).getLen
+      val rbFiber = BitmapFiber(() => loadBmSection(fin, 0, rbFileSize.toInt), rbPath.toString, 0, 0)
+      fin.close
+      new OapBitmapWrappedFiberCache(FiberCacheManager.get(rbFiber, conf))
+    })
+    var actualRowIdSeq = Seq.empty[Int]
+    val chunkList = BitmapUtils.or(wrapperFiberCacheSeq)
+    ChunksInMultiFiberCachesIterator(chunkList).init.foreach(rowId => actualRowIdSeq :+= rowId)
+    actualRowIdSeq.foreach(rowId => assert(seqCombination.contains(rowId) == true))
+    seqCombination.foreach(rowId => assert(actualRowIdSeq.contains(rowId) == true))
+    wrapperFiberCacheSeq.foreach(wfc => wfc.release)
   }
 
   private def loadBmSection(fin: FSDataInputStream, offset: Int, size: Int): FiberCache =
@@ -94,14 +168,19 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
     (keyCount, offsetListCache, footerCache)
   }
 
-  test("test the functionality of directly traversing single fiber cache without roaring bitmap") {
+  test("test how to directly get the row ID list from single fiber cache without roaring bitmap") {
     dataArray.foreach(dataIdx => {
       dataIdx.toDF("key", "value").createOrReplaceTempView("t")
       sql("insert overwrite table oap_test select * from t")
       sql("create oindex index_bm on oap_test (a) USING BITMAP")
+      // For dataCombination, the total rows is 3 * 20000 = 60000.
+      val expectedRowIdSeq = if (dataIdx != dataCombination) (0 until 20000).toSeq
+        else (0 until 60000).toSeq
+      var actualRowIdSeq = Seq.empty[Int]
+      var accumulatorRowId = 0
       dir.listFiles.foreach(fileName => {
         if (fileName.toString.endsWith(OapFileFormat.OAP_INDEX_EXTENSION)) {
-          var actualRowIdSeq = Seq.empty[Int]
+          var maxRowIdInPartition = 0
           val idxPath = new Path(fileName.toString)
           val conf = new Configuration()
           val fin = idxPath.getFileSystem(conf).open(idxPath)
@@ -113,39 +192,50 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
             val entryFiber = BitmapFiber(
               () => loadBmSection(fin, curIdxOffset, entrySize), idxPath.toString,
             BitmapIndexSectionId.entryListSection, idx)
-            val wfc = new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
-            wfc.init
-            ChunksInSingleFiberCacheIterator(wfc).init.foreach(rowId => actualRowIdSeq :+= rowId)
-            wfc.release
+            val wrappedFiberCache =
+              new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
+            wrappedFiberCache.init
+            ChunksInSingleFiberCacheIterator(wrappedFiberCache).init.foreach(rowId => {
+              val realRowId = rowId + accumulatorRowId
+              actualRowIdSeq :+= realRowId
+              if (maxRowIdInPartition < rowId) maxRowIdInPartition = rowId
+            })
+            wrappedFiberCache.release
           })
+          // The row Id is starting from 0.
+          accumulatorRowId += maxRowIdInPartition + 1
           footerCache.release
           offsetListCache.release
           fin.close
-          // It's not appropriate to use Set to just match if they are equal, because it can't avoid
-          // the possibility that the actual row ID seq may contain some repeated same elements.
-          val expectedRowIdSeq = (0 until actualRowIdSeq.size).toSeq
-          actualRowIdSeq.foreach(rowId => assert(expectedRowIdSeq.contains(rowId) == true))
-          expectedRowIdSeq.foreach(rowId => assert(actualRowIdSeq.contains(rowId) == true))
         }
       })
+      // It's not appropriate to use Set to just match if they are equal, because it can't avoid
+      // the possibility that the actual row ID seq may contain some repeated same elements.
+      actualRowIdSeq.foreach(rowId => assert(expectedRowIdSeq.contains(rowId) == true))
+      expectedRowIdSeq.foreach(rowId => assert(actualRowIdSeq.contains(rowId) == true))
       sql("drop oindex index_bm on oap_test")
     })
   }
 
-  test("test the functionality of directly bitwise OR case for multi fiber caches") {
+  test("test how to directly get the row Id list after bitwise OR among multi fiber caches") {
     dataArray.foreach(dataIdx => {
       dataIdx.toDF("key", "value").createOrReplaceTempView("t")
       sql("insert overwrite table oap_test select * from t")
       sql("create oindex index_bm on oap_test (a) USING BITMAP")
+      // For dataCombination, the total rows is 3 * 20000 = 60000.
+      val expectedRowIdSeq = if (dataIdx != dataCombination) (0 until 20000).toSeq
+        else (0 until 60000).toSeq
+      var actualRowIdSeq = Seq.empty[Int]
+      var accumulatorRowId = 0
       dir.listFiles.foreach(fileName => {
         if (fileName.toString.endsWith(OapFileFormat.OAP_INDEX_EXTENSION)) {
-          var actualRowIdSeq = Seq.empty[Int]
+          var maxRowIdInPartition = 0
           val idxPath = new Path(fileName.toString)
           val conf = new Configuration()
           val fin = idxPath.getFileSystem(conf).open(idxPath)
           val (keyCount, offsetListCache, footerCache) =
             getMetaDataAndFiberCaches(fin, idxPath, conf)
-          val wfcSeq = (0 until keyCount).map(idx => {
+          val wrappedFiberCacheSeq = (0 until keyCount).map(idx => {
             val curIdxOffset = getIdxOffset(offsetListCache.fc, 0L, idx)
             val entrySize = getIdxOffset(offsetListCache.fc, 0L, idx + 1) - curIdxOffset
             val entryFiber = BitmapFiber(
@@ -153,18 +243,21 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
               BitmapIndexSectionId.entryListSection, idx)
             new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
           })
-          val chunkList = BitmapUtils.or(wfcSeq)
-          ChunksInMultiFiberCachesIterator(chunkList).init.foreach(rowId =>
-            actualRowIdSeq :+= rowId)
-          wfcSeq.foreach(wfc => wfc.release)
+          val chunkList = BitmapUtils.or(wrappedFiberCacheSeq)
+          ChunksInMultiFiberCachesIterator(chunkList).init.foreach(rowId => {
+              val realRowId = rowId + accumulatorRowId
+              actualRowIdSeq :+= realRowId
+              if (maxRowIdInPartition < rowId) maxRowIdInPartition = rowId
+          })
+          accumulatorRowId += maxRowIdInPartition + 1
+          wrappedFiberCacheSeq.foreach(wfc => wfc.release)
           footerCache.release
           offsetListCache.release
           fin.close
-          val expectedRowIdSeq = (0 until actualRowIdSeq.size).toSeq
-          actualRowIdSeq.foreach(rowId => assert(expectedRowIdSeq.contains(rowId) == true))
-          expectedRowIdSeq.foreach(rowId => assert(actualRowIdSeq.contains(rowId) == true))
         }
       })
+      actualRowIdSeq.foreach(rowId => assert(expectedRowIdSeq.contains(rowId) == true))
+      expectedRowIdSeq.foreach(rowId => assert(actualRowIdSeq.contains(rowId) == true))
       sql("drop oindex index_bm on oap_test")
     })
   }

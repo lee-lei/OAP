@@ -22,7 +22,6 @@ import java.io.{ByteArrayOutputStream, DataOutputStream, File, FileOutputStream}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FSDataInputStream, Path}
 import org.roaringbitmap.RoaringBitmap
-import org.scalatest.BeforeAndAfterEach
 
 import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, MemoryManager, FiberCache, FiberCacheManager}
@@ -32,29 +31,12 @@ import org.apache.spark.util.Utils
 
 // Below are used to test the functionality of OapBitmapWrappedFiberCache class.
 class OapBitmapWrappedFiberCacheSuite
-  extends QueryTest with SharedOapContext with BeforeAndAfterEach {
-
-  import testImplicits._
-  private var dir: File = _
-  private var path: String = _
-
-  override def beforeEach(): Unit = {
-    dir = Utils.createTempDir()
-    path = dir.getAbsolutePath
-    sql(s"""CREATE TEMPORARY VIEW oap_test (a INT, b STRING)
-            | USING oap
-            | OPTIONS (path '$path')""".stripMargin)
-  }
-
-  override def afterEach(): Unit = {
-    sqlContext.dropTempTable("oap_test")
-    dir.delete()
-  }
+  extends QueryTest with SharedOapContext {
 
   private def loadRbFile(fin: FSDataInputStream, offset: Int, size: Int): FiberCache =
     MemoryManager.putToIndexFiberCache(fin, offset, size)
 
-  test("test the functionality of OapBitmapWrappedFiberCache") {
+  test("test the public methods of OapBitmapWrappedFiberCache class") {
     val CHUNK_SIZE = 1 << 16
     val dataForRunChunk = (1 to 9).toSeq
     val dataForArrayChunk = Seq(1, 3, 5, 7, 9)
@@ -64,9 +46,10 @@ class OapBitmapWrappedFiberCacheSuite
     val dataArray =
       Array(dataForRunChunk, dataForArrayChunk, dataForBitmapChunk, dataCombination)
     dataArray.foreach(dataIdx => {
+      val dir = Utils.createTempDir()
       val rb = new RoaringBitmap()
       dataIdx.foreach(rb.add)
-      val rbFile = path + "rb.bin"
+      val rbFile = dir.getAbsolutePath + "rb.bin"
       rb.runOptimize()
       val rbFos = new FileOutputStream(rbFile)
       val rbBos = new ByteArrayOutputStream()
@@ -97,6 +80,8 @@ class OapBitmapWrappedFiberCacheSuite
         case _ => throw new OapException("unexpected chunk in OapBitmapWrappedFiberCache.")
       }
       rbWfc.release
+      fin.close
+      dir.delete
     })
   }
 }
