@@ -60,12 +60,18 @@ private[oap] case class ChunksInMultiFiberCachesIterator(
   }
 }
 
-/* This method will virtually link all the chunks in multi fiber caches in ascending
- * order of chunk key. It will provide the input for the above ChunksInMultiFiberCachesIterator.
- */
 private[oap] object BitmapUtils {
 
-  // Just get array of the chunks across multi fiber caches in acending order of key.
+  // Below constants are used by OapBitmapWrappedFiberCache class.
+  val SERIAL_COOKIE: Int = 12347
+  val SERIAL_COOKIE_NO_RUNCONTAINER: Int = 12346
+  val NO_OFFSET_THRESHOLD: Int = 4
+  val DEFAULT_MAX_SIZE: Int = 4096
+  val BITMAP_MAX_CAPACITY: Int = 1 << 16
+
+  /* Below method will virtually link all the chunks in multi fiber caches in ascending order
+   * of chunk key. It will provide the input for the above ChunksInMultiFiberCachesIterator.
+   */
   def or(wfcSeq: Seq[OapBitmapWrappedFiberCache]): ArrayBuffer[OapBitmapChunkInFiberCache] = {
     val firstWfc = wfcSeq(0)
     firstWfc.init
@@ -108,7 +114,7 @@ private[oap] object BitmapUtils {
               nextIdx += 1
               if (nextIdx == nextChunkLength) break
               nextKey = nextChunkKeys(nextIdx)
-          }
+            }
         }
       }
       if (initialIdx == finalChunkArray.length && nextIdx < nextChunkLength) {

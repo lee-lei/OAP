@@ -28,12 +28,6 @@ import org.apache.spark.sql.execution.datasources.oap.filecache.{FiberCache, Wra
 // The spec link is https://github.com/RoaringBitmap/RoaringFormatSpec/
 private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFiberCache(fc) {
 
-  private val SERIAL_COOKIE: Int = 12347
-  private val SERIAL_COOKIE_NO_RUNCONTAINER: Int = 12346
-  private val NO_OFFSET_THRESHOLD: Int = 4
-  private val DEFAULT_MAX_SIZE: Int = 4096
-  private val BITMAP_MAX_CAPACITY: Int = 1 << 16
-
   private var chunkLength: Int = 0
   // It indicates no this section.
   private var chunkOffsetListOffset: Int = -1
@@ -50,11 +44,10 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
   // The reading byte order is little endian to keep consistent with roaring bitmap writing order.
   // Read from the specific offset.
   private def getIntNoMoving(offset: Int): Int = {
-    val curPos = offset
-    ((fc.getByte(curPos + 3) & 0xFF) << 24) |
-      ((fc.getByte(curPos + 2) & 0xFF) << 16) |
-      ((fc.getByte(curPos + 1) & 0xFF) << 8) |
-      (fc.getByte(curPos) & 0xFF)
+    ((fc.getByte(offset + 3) & 0xFF) << 24) |
+      ((fc.getByte(offset + 2) & 0xFF) << 16) |
+      ((fc.getByte(offset + 1) & 0xFF) << 8) |
+      (fc.getByte(offset) & 0xFF)
   }
 
   private def getChunkSize(chunkIdx: Int): Int = {
@@ -63,7 +56,7 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
       case idx if (isArrayChunk(idx)) =>
         (chunkCardinalities(idx) & 0xFFFF) * 2
       case idx if (isBitmapChunk(idx)) =>
-        BITMAP_MAX_CAPACITY / 8
+        BitmapUtils.BITMAP_MAX_CAPACITY / 8
       case _ =>
         throw new OapException("It's illegal to get chunk size.")
     }
@@ -81,12 +74,12 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
 
   private def isArrayChunk(idx: Int): Boolean = {
     // The logic in getIteratorForChunk excludes the run chunk first.
-    (chunkCardinalities(idx) & 0xFFFF) <= DEFAULT_MAX_SIZE
+    (chunkCardinalities(idx) & 0xFFFF) <= BitmapUtils.DEFAULT_MAX_SIZE
   }
 
   private def isBitmapChunk(idx: Int): Boolean = {
     // The logic in getIteratorForChunk excludes the run and array chunks first.
-    (chunkCardinalities(idx) & 0xFFFF) > DEFAULT_MAX_SIZE
+    (chunkCardinalities(idx) & 0xFFFF) > BitmapUtils.DEFAULT_MAX_SIZE
   }
 
   private def getInt(): Int = {
@@ -124,7 +117,7 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
 
   def getChunkCardinality(idx: Int): Short = chunkCardinalities(idx)
 
-  def getBitmapCapacity(): Int = BITMAP_MAX_CAPACITY
+  def getBitmapCapacity(): Int = BitmapUtils.BITMAP_MAX_CAPACITY
 
   // It's used to traverse multi-chunks across multi-fiber caches in bitwise OR case.
   def setOffset(chunkIdx: Int): Unit = {
@@ -154,10 +147,10 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
   def init(): Unit = {
     val cookie = getInt
     cookie match {
-      case ck if ((ck & 0xFFFF) == SERIAL_COOKIE) =>
+      case ck if ((ck & 0xFFFF) == BitmapUtils.SERIAL_COOKIE) =>
         chunkLength = (cookie >>> 16) + 1
         hasRun = true
-      case ck if (ck == SERIAL_COOKIE_NO_RUNCONTAINER) =>
+      case ck if (ck == BitmapUtils.SERIAL_COOKIE_NO_RUNCONTAINER) =>
         chunkLength = getInt
       case _ =>
         throw new OapException("It's invalid roaring bitmap header in OAP bitmap index file.")
@@ -172,7 +165,7 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
       chunkKeys(idx) = getShort
       chunkCardinalities(idx) = (1 + (0xFFFF & getShort)).toShort
     })
-    if (!hasRun || chunkLength >= NO_OFFSET_THRESHOLD) {
+    if (!hasRun || chunkLength >= BitmapUtils.NO_OFFSET_THRESHOLD) {
       chunkOffsetListOffset = curOffset
       curOffset += chunkLength * 4
     }

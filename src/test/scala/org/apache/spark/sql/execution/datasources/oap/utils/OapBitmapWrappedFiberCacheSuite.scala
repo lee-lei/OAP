@@ -33,10 +33,10 @@ import org.apache.spark.util.Utils
 class OapBitmapWrappedFiberCacheSuite
   extends QueryTest with SharedOapContext {
 
-  private def loadRbFile(fin: FSDataInputStream, offset: Int, size: Int): FiberCache =
-    MemoryManager.putToIndexFiberCache(fin, offset, size)
+  private def loadRbFile(fin: FSDataInputStream, offset: Long, size: Int): FiberCache =
+    MemoryManager.toIndexFiberCache(fin, offset, size)
 
-  test("test the public methods of OapBitmapWrappedFiberCache class") {
+  test("test the functionality of OapBitmapWrappedFiberCache class") {
     val CHUNK_SIZE = 1 << 16
     val dataForRunChunk = (1 to 9).toSeq
     val dataForArrayChunk = Seq(1, 3, 5, 7, 9)
@@ -63,7 +63,7 @@ class OapBitmapWrappedFiberCacheSuite
       val conf = new Configuration()
       val fin = rbPath.getFileSystem(conf).open(rbPath)
       val rbFileSize = rbPath.getFileSystem(conf).getFileStatus(rbPath).getLen
-      val rbFiber = BitmapFiber(() => loadRbFile(fin, 0, rbFileSize.toInt), rbPath.toString, 0, 0)
+      val rbFiber = BitmapFiber(() => loadRbFile(fin, 0L, rbFileSize.toInt), rbPath.toString, 0, 0)
       val rbWfc = new OapBitmapWrappedFiberCache(FiberCacheManager.get(rbFiber, conf))
       rbWfc.init
       val chunkLength = rbWfc.getTotalChunkLength
