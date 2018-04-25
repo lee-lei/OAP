@@ -20,46 +20,6 @@ package org.apache.spark.sql.execution.datasources.oap.utils
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.Breaks._
 
-/* The chunks inside of one single fiber cache are physically consecutive,
- * so it doesn't require to set chunk offset. This class is to directly get
- * the row ID list recorded in all of the chunks of this single fiber cache
- * in ascending order.
- */
-private[oap] case class ChunksInSingleFiberCacheIterator(wfc: OapBitmapWrappedFiberCache)
-  extends ChunksIterator {
-
-  override def init(): Iterator[Int] = {
-    totalLength = wfc.getTotalChunkLength
-    if (idx < totalLength) {
-      iteratorForChunk = wfc.getIteratorForChunk(idx)
-      val cks = wfc.getChunkKeys
-      highPart = (cks(idx) & 0xFFFF) << 16
-    }
-    return this
-  }
-}
-
-/* The chunks inside of different multi fiber cache are not physically consecutive, so it
- * requires to set chunk offset for different fibers. This class is to directly get the row ID
- * list recorded in all of the chunks in all of multi fiber caches in ascending order.
- */
-private[oap] case class ChunksInMultiFiberCachesIterator(
-    chunksInFc: ArrayBuffer[OapBitmapChunkInFiberCache])
-  extends ChunksIterator {
-
-  override def init(): Iterator[Int] = {
-    totalLength = chunksInFc.length
-    if (idx < totalLength) {
-      val wfc = chunksInFc(idx).wfc
-      val chunkIdx = chunksInFc(idx).chunkIdx
-      wfc.setOffset(chunkIdx)
-      iteratorForChunk = wfc.getIteratorForChunk(chunkIdx)
-      highPart = (chunksInFc(idx).getChunkKey & 0xFFFF) << 16
-    }
-    return this
-  }
-}
-
 private[oap] object BitmapUtils {
 
   // Below constants are used by OapBitmapWrappedFiberCache class.
@@ -69,10 +29,66 @@ private[oap] object BitmapUtils {
   val DEFAULT_MAX_SIZE: Int = 4096
   val BITMAP_MAX_CAPACITY: Int = 1 << 16
 
-  /* Below method will virtually link all the chunks in multi fiber caches in ascending order
+  def iterator(wfcSeq: Seq[OapBitmapWrappedFiberCache]): Iterator[Int] = {
+    // For only one fiber cache, use ChunksInSingleFiberCacheIterator for best performance.
+    if (wfcSeq.size == 1) {
+      val wfc = wfcSeq.head
+      wfc.init
+      ChunksInSingleFiberCacheIterator(wfc).prepare
+    } else {
+      ChunksInMultiFiberCachesIterator(wfcSeq).prepare
+    }
+  }
+}
+
+/**
+ * The chunks inside of one single fiber cache are physically consecutive,
+ * so it doesn't require to set chunk offset. This class is to directly get
+ * the row ID list recorded in all of the chunks of this single fiber cache
+ * in ascending order.
+ */
+private[oap] case class ChunksInSingleFiberCacheIterator(wfc: OapBitmapWrappedFiberCache)
+  extends ChunksIterator {
+
+  override def prepare(): Iterator[Int] = {
+    totalLength = wfc.getTotalChunkLength
+    if (idx < totalLength) {
+      iteratorForChunk = wfc.getIteratorForChunk(idx)
+      val cks = wfc.getChunkKeys
+      highPart = (cks(idx) & 0xFFFF) << 16
+    }
+    this
+  }
+}
+
+/**
+ * The chunks inside of different multi fiber cache are not physically consecutive, so it
+ * requires to set chunk offset for different fibers. This class is to directly get the row ID
+ * list recorded in all of the chunks in all of multi fiber caches in ascending order.
+ */
+private[oap] case class ChunksInMultiFiberCachesIterator(
+    wfcSeq: Seq[OapBitmapWrappedFiberCache])
+  extends ChunksIterator {
+
+  private val chunksInFc: ArrayBuffer[OapBitmapChunkInFiberCache] = or
+
+  override def prepare(): Iterator[Int] = {
+    totalLength = chunksInFc.length
+    if (idx < totalLength) {
+      val wfc = chunksInFc(idx).wfc
+      val chunkIdx = chunksInFc(idx).chunkIdx
+      wfc.setOffset(chunkIdx)
+      iteratorForChunk = wfc.getIteratorForChunk(chunkIdx)
+      highPart = (chunksInFc(idx).getChunkKey & 0xFFFF) << 16
+    }
+    this
+  }
+
+  /**
+   * Below method will virtually link all the chunks in multi fiber caches in ascending order
    * of chunk key. It will provide the input for the above ChunksInMultiFiberCachesIterator.
    */
-  def or(wfcSeq: Seq[OapBitmapWrappedFiberCache]): ArrayBuffer[OapBitmapChunkInFiberCache] = {
+  private def or(): ArrayBuffer[OapBitmapChunkInFiberCache] = {
     val firstWfc = wfcSeq(0)
     firstWfc.init
     val initialChunkLength = firstWfc.getTotalChunkLength

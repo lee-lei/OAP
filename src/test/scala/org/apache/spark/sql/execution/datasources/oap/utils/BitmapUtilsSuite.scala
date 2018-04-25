@@ -48,24 +48,6 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
     (1 to 20000).map{i => (i % 2, s"this is test $i")}
   private val expectedRowIdSeq = (0 until 20000).toSeq
   private val expectedRowIdSeqCombinationTotal = (0 until 60000).toSeq
-  // Below data can be used to further validate the functionality of BitmapUtils class.
-  // Unfortunately, the tasks are killed on github due to more time consumption after
-  // adding the following test cases although all of them passed locally.
-/*
-  private val expectedRowIdSeqCombination = (0 until 40000).toSeq
-  private val dataCombination1 =
-    dataForBitmapChunk ++ dataForArrayChunk
-  private val dataCombination2 =
-    dataForBitmapChunk ++ dataForRunChunk
-  private val dataCombination3 =
-    dataForArrayChunk ++ dataForRunChunk
-  private val dataSourceArray =
-    Array((dataForRunChunk, expectedRowIdSeq), (dataForArrayChunk, expectedRowIdSeq),
-      (dataForBitmapChunk, expectedRowIdSeq), (dataCombination1, expectedRowIdSeqCombination),
-      (dataCombination2, expectedRowIdSeqCombination),
-      (dataCombination3, expectedRowIdSeqCombination),
-      (dataCombinationTotal, expectedRowIdSeqCombinationTotal))
-*/
   private val dataCombinationTotal =
     dataForBitmapChunk ++ dataForArrayChunk ++ dataForRunChunk
   private val dataSourceArray =
@@ -139,14 +121,13 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
             val entryFiber = BitmapFiber(
               () => loadBmSection(fin, curIdxOffset.toLong, entrySize), idxPath.toString,
             BitmapIndexSectionId.entryListSection, idx)
-            val wrappedFiberCache =
-              new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
-            wrappedFiberCache.init
-            ChunksInSingleFiberCacheIterator(wrappedFiberCache).init.foreach(rowId => {
+            val wrappedFiberCacheSeq =
+              Seq(new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf)))
+            BitmapUtils.iterator(wrappedFiberCacheSeq).foreach(rowId => {
               actualRowIdSeq :+= rowId + accumulatorRowId
               if (maxRowIdInPartition < rowId) maxRowIdInPartition = rowId
             })
-            wrappedFiberCache.release
+            wrappedFiberCacheSeq.head.release
           })
           // The row Id is starting from 0.
           accumulatorRowId += maxRowIdInPartition + 1
@@ -184,10 +165,9 @@ class BitmapUtilsSuite extends QueryTest with SharedOapContext with BeforeAndAft
               BitmapIndexSectionId.entryListSection, idx)
             new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
           })
-          val chunkList = BitmapUtils.or(wrappedFiberCacheSeq)
-          ChunksInMultiFiberCachesIterator(chunkList).init.foreach(rowId => {
-              actualRowIdSeq :+= rowId + accumulatorRowId
-              if (maxRowIdInPartition < rowId) maxRowIdInPartition = rowId
+          BitmapUtils.iterator(wrappedFiberCacheSeq).foreach(rowId => {
+            actualRowIdSeq :+= rowId + accumulatorRowId
+            if (maxRowIdInPartition < rowId) maxRowIdInPartition = rowId
           })
           accumulatorRowId += maxRowIdInPartition + 1
           wrappedFiberCacheSeq.foreach(wfc => wfc.release)

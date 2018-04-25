@@ -53,9 +53,9 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
   private def getChunkSize(chunkIdx: Int): Int = {
     // NO run chunks in this case.
     chunkIdx match {
-      case idx if (isArrayChunk(idx)) =>
+      case idx if isArrayChunk(idx) =>
         (chunkCardinalities(idx) & 0xFFFF) * 2
-      case idx if (isBitmapChunk(idx)) =>
+      case idx if isBitmapChunk(idx) =>
         BitmapUtils.BITMAP_MAX_CAPACITY / 8
       case _ =>
         throw new OapException("It's illegal to get chunk size.")
@@ -133,12 +133,12 @@ private[oap] class OapBitmapWrappedFiberCache(fc: FiberCache) extends WrappedFib
 
   def getIteratorForChunk(chunkIdx: Int): Iterator[Int] = {
     chunkIdx match {
-      case idx if (isRunChunk(idx)) =>
-        return RunChunkIterator(this)
-      case idx if (isArrayChunk(idx)) =>
-        return ArrayChunkIterator(this, idx)
-      case idx if (isBitmapChunk(idx)) =>
-        return BitmapChunkIterator(this)
+      case idx if isRunChunk(idx) =>
+        RunChunkIterator(this)
+      case idx if isArrayChunk(idx) =>
+        ArrayChunkIterator(this, idx)
+      case idx if isBitmapChunk(idx) =>
+        BitmapChunkIterator(this)
       case _ =>
         throw new OapException("It's illegal chunk in bitmap index fiber caches.\n")
     }
@@ -186,7 +186,7 @@ private[oap] abstract class ChunksIterator extends Iterator[Int] {
   protected var highPart: Int = 0
   protected var iteratorForChunk: Iterator[Int] = _
 
-  def init(): Iterator[Int]
+  def prepare(): Iterator[Int]
 
   override def hasNext: Boolean = idx < totalLength
 
@@ -194,7 +194,7 @@ private[oap] abstract class ChunksIterator extends Iterator[Int] {
     val value = iteratorForChunk.next | highPart
     if (!iteratorForChunk.hasNext) {
       idx += 1
-      init
+      prepare
     }
     value
   }
@@ -202,7 +202,7 @@ private[oap] abstract class ChunksIterator extends Iterator[Int] {
 
 private[oap] case class RunChunkIterator(wfc: OapBitmapWrappedFiberCache) extends Iterator[Int] {
 
-  private var totalRuns: Int = wfc.getShort & 0xFFFF
+  private val totalRuns: Int = wfc.getShort & 0xFFFF
   private var runBase: Int = wfc.getShort & 0xFFFF
   private var maxCurRunLength: Int = wfc.getShort & 0xFFFF
   private var runIdx: Int = 0
