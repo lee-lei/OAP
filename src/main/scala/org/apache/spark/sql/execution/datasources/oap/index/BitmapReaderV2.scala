@@ -52,7 +52,7 @@ private[oap] class BitmapReaderV2(
   }
 
   private def getDesiredWfcSeq(): Seq[OapBitmapWrappedFiberCache] = {
-    val keySeq = readBmUniqueKeyList(bmUniqueKeyListCache.fc)
+    val keySeq = readBmUniqueKeyList(bmUniqueKeyListCache)
     intervalArray.flatMap{
       case range if !range.isNullPredicate =>
         val (startIdx, endIdx) = getKeyIdx(keySeq, range)
@@ -60,8 +60,8 @@ private[oap] class BitmapReaderV2(
           Seq.empty
         } else {
           (startIdx until (endIdx + 1)).map(idx => {
-            val curIdxOffset = getIdxOffset(bmOffsetListCache.fc, 0L, idx)
-            val entrySize = getIdxOffset(bmOffsetListCache.fc, 0L, idx + 1) - curIdxOffset
+            val curIdxOffset = getIdxOffset(bmOffsetListCache, 0L, idx)
+            val entrySize = getIdxOffset(bmOffsetListCache, 0L, idx + 1) - curIdxOffset
             val entryFiber = BitmapFiber(() => loadBmSection(fin, curIdxOffset, entrySize),
               idxPath.toString, BitmapIndexSectionId.entryListSection, idx)
             new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
@@ -73,7 +73,7 @@ private[oap] class BitmapReaderV2(
           idxPath.toString, BitmapIndexSectionId.entryNullSection, 0)
         val nullListCache =
           new OapBitmapWrappedFiberCache(FiberCacheManager.get(nullListFiber, conf))
-        if (nullListCache.fc.size != 0) {
+        if (nullListCache.size != 0) {
           Seq(nullListCache)
         } else {
           Seq.empty

@@ -28,7 +28,7 @@ import org.apache.hadoop.fs.{FSDataInputStream, Path}
 import org.roaringbitmap.FastAggregation
 import org.roaringbitmap.RoaringBitmap
 
-import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, FiberCache, FiberCacheManager, WrappedFiberCache}
+import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, FiberCache, FiberCacheManager}
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.types.StructType
 
@@ -57,7 +57,7 @@ private[oap] class BitmapReaderV1(
   }
 
   private def getDesiredBitmapArray(): ArrayBuffer[RoaringBitmap] = {
-    val keySeq = readBmUniqueKeyList(bmUniqueKeyListCache.fc)
+    val keySeq = readBmUniqueKeyList(bmUniqueKeyListCache)
     intervalArray.flatMap{
       case range if !range.isNullPredicate =>
         val (startIdx, endIdx) = getKeyIdx(keySeq, range)
@@ -66,12 +66,12 @@ private[oap] class BitmapReaderV1(
           Seq.empty
         } else {
           (startIdx until (endIdx + 1)).map(idx => {
-            val curIdxOffset = getIdxOffset(bmOffsetListCache.fc, 0L, idx)
-            val entrySize = getIdxOffset(bmOffsetListCache.fc, 0L, idx + 1) - curIdxOffset
+            val curIdxOffset = getIdxOffset(bmOffsetListCache, 0L, idx)
+            val entrySize = getIdxOffset(bmOffsetListCache, 0L, idx + 1) - curIdxOffset
             val entryFiber = BitmapFiber(() => loadBmSection(fin, curIdxOffset, entrySize),
               idxPath.toString, BitmapIndexSectionId.entryListSection, idx)
-            val entryCache = WrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
-            val entry = getDesiredBitmap(entryCache.fc)
+            val entryCache = FiberCacheManager.get(entryFiber, conf)
+            val entry = getDesiredBitmap(entryCache)
             entryCache.release
             entry
           })
@@ -80,9 +80,9 @@ private[oap] class BitmapReaderV1(
         val nullListFiber = BitmapFiber(
           () => loadBmSection(fin, bmNullEntryOffset, bmNullEntrySize),
           idxPath.toString, BitmapIndexSectionId.entryNullSection, 0)
-        val nullListCache = WrappedFiberCache(FiberCacheManager.get(nullListFiber, conf))
-        if (nullListCache.fc.size != 0) {
-          val entry = getDesiredBitmap(nullListCache.fc)
+        val nullListCache = FiberCacheManager.get(nullListFiber, conf)
+        if (nullListCache.size != 0) {
+          val entry = getDesiredBitmap(nullListCache)
           nullListCache.release
           Seq(entry)
         } else {
