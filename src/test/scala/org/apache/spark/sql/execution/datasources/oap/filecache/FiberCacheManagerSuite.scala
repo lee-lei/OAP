@@ -136,7 +136,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
     fiberCache2.release()
   }
 
-  test("cache guardian remove pending fibers") {
+  ignore("cache guardian remove pending fibers") {
     newFiberGroup
     Thread.sleep(1000) // Wait some time for CacheGuardian to remove pending fibers
     val memorySizeInMB = (memoryManager.cacheMemory / mbSize).toInt
