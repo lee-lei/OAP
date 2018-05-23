@@ -53,6 +53,8 @@ private[oap] case class BitmapReader(
   protected var bmUniqueKeyListCache: FiberCache = _
   protected var bmOffsetListCache: FiberCache = _
   protected var bmFooterCache: FiberCache = _
+
+  protected var bmNullListCache: FiberCache = _
   protected var bmNullEntryOffset: Int = _
   protected var bmNullEntrySize: Int = _
 
@@ -162,6 +164,11 @@ private[oap] case class BitmapReader(
       () => loadBmSection(fin, offsetListOffset, offsetListTotalSize),
       idxPath.toString, BitmapIndexSectionId.entryOffsetsSection, 0)
     bmOffsetListCache = FiberCacheManager.get(offsetListFiber, conf)
+
+    val nullListFiber = BitmapFiber(
+      () => loadBmSection(fin, bmNullEntryOffset, bmNullEntrySize),
+      idxPath.toString, BitmapIndexSectionId.entryNullSection, 0)
+    bmNullListCache = FiberCacheManager.get(nullListFiber, conf)
   }
 
   protected def clearCache(): Unit = {
@@ -170,6 +177,9 @@ private[oap] case class BitmapReader(
     }
     if (bmOffsetListCache != null) {
       bmOffsetListCache.release
+    }
+    if (bmNullListCache != null) {
+      bmNullListCache.release
     }
     if (bmFooterCache != null) {
       bmFooterCache.release

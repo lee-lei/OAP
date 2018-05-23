@@ -77,14 +77,8 @@ private[oap] class BitmapReaderV1(
           })
         }
       case range if range.isNullPredicate =>
-        val nullListFiber = BitmapFiber(
-          () => loadBmSection(fin, bmNullEntryOffset, bmNullEntrySize),
-          idxPath.toString, BitmapIndexSectionId.entryNullSection, 0)
-        val nullListCache = FiberCacheManager.get(nullListFiber, conf)
-        if (nullListCache.size != 0) {
-          val entry = getDesiredBitmap(nullListCache)
-          nullListCache.release
-          Seq(entry)
+        if (bmNullListCache.size != 0) {
+          Seq(getDesiredBitmap(bmNullListCache))
         } else {
           Seq.empty
         }
