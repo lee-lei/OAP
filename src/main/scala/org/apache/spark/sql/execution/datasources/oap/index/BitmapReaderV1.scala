@@ -28,7 +28,7 @@ import org.apache.hadoop.fs.{FSDataInputStream, Path}
 import org.roaringbitmap.FastAggregation
 import org.roaringbitmap.RoaringBitmap
 
-import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, FiberCache, FiberCacheManager}
+import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, FiberCache}
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.types.StructType
 
@@ -78,14 +78,14 @@ private[oap] class BitmapReaderV1(
             val entrySize = getIdxOffset(bmOffsetListCache, 0L, idx + 1) - curIdxOffset
             val entryFiber = BitmapFiber(() => loadBmSection(fin, curIdxOffset, entrySize),
               idxPath.toString, BitmapIndexSectionId.entryListSection, idx)
-            val entryCache = FiberCacheManager.get(entryFiber, conf)
+            val entryCache = fiberCacheManager.get(entryFiber, conf)
             val entry = getDesiredBitmap(entryCache)
             entryCache.release
             entry
           })
         }
       case range if range.isNullPredicate =>
-        bmNullListCache = FiberCacheManager.get(bmNullListFiber, conf)
+        bmNullListCache = fiberCacheManager.get(bmNullListFiber, conf)
         if (bmNullListCache.size != 0) {
           Seq(getDesiredBitmap(bmNullListCache))
         } else {

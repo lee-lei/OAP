@@ -26,10 +26,11 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.execution.datasources.oap.Key
-import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, Fiber, FiberCache, FiberCacheManager, MemoryManager}
+import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, Fiber, FiberCache}
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics.{StatisticsManager, StatsAnalysisResult}
 import org.apache.spark.sql.execution.datasources.oap.utils.NonNullKeyReader
+import org.apache.spark.sql.oap.OapRuntime
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.ShutdownHookManager
 
@@ -40,11 +41,14 @@ private[oap] case class BitmapReader(
     conf: Configuration) {
 
   private var _totalRows: Long = 0
+  private val memoryManager = OapRuntime.getOrCreate.memoryManager
   // TODO: use hash instead of order compare.
   @transient protected var ordering: Ordering[Key] =
     GenerateOrdering.create(keySchema)
   @transient
   protected lazy val nnkr: NonNullKeyReader = new NonNullKeyReader(keySchema)
+
+  protected val fiberCacheManager = OapRuntime.getOrCreate.fiberCacheManager
 
   protected val BITMAP_FOOTER_SIZE = 6 * 8
 
@@ -66,7 +70,7 @@ private[oap] case class BitmapReader(
     val footerFiber = BitmapFiber(
       () => loadBmSection(fin, footerOffset, BITMAP_FOOTER_SIZE),
       idxPath.toString, BitmapIndexSectionId.footerSection, 0)
-    bmFooterCache = FiberCacheManager.get(footerFiber, conf)
+    bmFooterCache = fiberCacheManager.get(footerFiber, conf)
     // Calculate total rows right after footer cache is loaded.
     _totalRows = bmFooterCache.getInt(IndexUtils.INT_SIZE * 7)
 
@@ -78,7 +82,7 @@ private[oap] case class BitmapReader(
     }
 
   protected def loadBmSection(fin: FSDataInputStream, offset: Int, size: Int): FiberCache =
-    MemoryManager.toIndexFiberCache(fin, offset.toLong, size)
+    memoryManager.toIndexFiberCache(fin, offset.toLong, size)
 
   protected def getIdxOffset(fiberCache: FiberCache, baseOffset: Long, idx: Int): Int =
     fiberCache.getInt(baseOffset + idx * 4)
@@ -158,12 +162,12 @@ private[oap] case class BitmapReader(
     val uniqueKeyListFiber = BitmapFiber(
       () => loadBmSection(fin, uniqueKeyListOffset, uniqueKeyListTotalSize),
       idxPath.toString, BitmapIndexSectionId.keyListSection, 0)
-    bmUniqueKeyListCache = FiberCacheManager.get(uniqueKeyListFiber, conf)
+    bmUniqueKeyListCache = fiberCacheManager.get(uniqueKeyListFiber, conf)
 
     val offsetListFiber = BitmapFiber(
       () => loadBmSection(fin, offsetListOffset, offsetListTotalSize),
       idxPath.toString, BitmapIndexSectionId.entryOffsetsSection, 0)
-    bmOffsetListCache = FiberCacheManager.get(offsetListFiber, conf)
+    bmOffsetListCache = fiberCacheManager.get(offsetListFiber, conf)
 
     bmNullListFiber = BitmapFiber(
       () => loadBmSection(fin, bmNullEntryOffset, bmNullEntrySize),
@@ -204,7 +208,7 @@ private[oap] case class BitmapReader(
     val bmStatsContentFiber = BitmapFiber(
       () => loadBmSection(fin, statsOffset.toInt, statsSize.toInt),
       idxPath.toString, BitmapIndexSectionId.statsContentSection, 0)
-    val bmStatsContentCache = FiberCacheManager.get(bmStatsContentFiber, conf)
+    val bmStatsContentCache = fiberCacheManager.get(bmStatsContentFiber, conf)
     val stats = StatisticsManager.read(bmStatsContentCache, 0, keySchema)
     val res = StatisticsManager.analyse(stats, intervalArray, conf)
     bmFooterCache.release

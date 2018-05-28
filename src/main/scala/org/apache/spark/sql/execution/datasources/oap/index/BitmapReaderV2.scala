@@ -23,8 +23,8 @@ import scala.util.control.Breaks._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FSDataInputStream, Path}
 
-import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, FiberCacheManager}
-import org.apache.spark.sql.execution.datasources.oap.utils.{BitmapUtils, ChunksInMultiFiberCachesIterator, ChunksInSingleFiberCacheIterator, OapBitmapChunkInFiberCache, OapBitmapWrappedFiberCache}
+import org.apache.spark.sql.execution.datasources.oap.filecache.BitmapFiber
+import org.apache.spark.sql.execution.datasources.oap.utils.{BitmapUtils, OapBitmapWrappedFiberCache}
 import org.apache.spark.sql.types.StructType
 
 private[oap] class BitmapReaderV2(
@@ -64,12 +64,12 @@ private[oap] class BitmapReaderV2(
             val entrySize = getIdxOffset(bmOffsetListCache, 0L, idx + 1) - curIdxOffset
             val entryFiber = BitmapFiber(() => loadBmSection(fin, curIdxOffset, entrySize),
               idxPath.toString, BitmapIndexSectionId.entryListSection, idx)
-            new OapBitmapWrappedFiberCache(FiberCacheManager.get(entryFiber, conf))
+            new OapBitmapWrappedFiberCache(fiberCacheManager.get(entryFiber, conf))
           })
         }
       case range if range.isNullPredicate =>
         val nullListCache =
-          new OapBitmapWrappedFiberCache(FiberCacheManager.get(bmNullListFiber, conf))
+          new OapBitmapWrappedFiberCache(fiberCacheManager.get(bmNullListFiber, conf))
         if (nullListCache.size != 0) {
           Seq(nullListCache)
         } else {
