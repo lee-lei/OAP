@@ -50,7 +50,12 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
           reader.getRowIdIterator
           bmRowIdIterator = reader
           reader
-        // TODO: Add the bitmap reader V2 soon.
+        case 2 =>
+          val reader = new BitmapReaderV2(
+            fin, intervalArray, internalLimit, keySchema, idxPath, conf)
+          reader.getRowIdIterator
+          bmRowIdIterator = reader
+          reader
         case _ =>
           throw new OapException("not supported bitmap index version. " + indexVersion)
       }

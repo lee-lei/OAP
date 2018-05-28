@@ -43,10 +43,18 @@ private[oap] class BitmapReaderV1(
 
   @transient private var bmRowIdIterator: Iterator[Integer] = _
   private var empty: Boolean = _
+  private var bmNullListCache: FiberCache = _
 
   override def hasNext: Boolean = !empty && bmRowIdIterator.hasNext
   override def next(): Int = bmRowIdIterator.next()
   override def toString: String = "BitmapReaderV1"
+
+  override def clearCache(): Unit = {
+    super.clearCache
+    if (bmNullListCache != null) {
+      bmNullListCache.release
+    }
+  }
 
   private def getDesiredBitmap(fc: FiberCache): RoaringBitmap = {
     val stream = new BitmapDataInputStream(fc)
@@ -77,6 +85,7 @@ private[oap] class BitmapReaderV1(
           })
         }
       case range if range.isNullPredicate =>
+        bmNullListCache = FiberCacheManager.get(bmNullListFiber, conf)
         if (bmNullListCache.size != 0) {
           Seq(getDesiredBitmap(bmNullListCache))
         } else {

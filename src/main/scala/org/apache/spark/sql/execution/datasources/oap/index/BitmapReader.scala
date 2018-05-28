@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.execution.datasources.oap.Key
-import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, FiberCache, FiberCacheManager, MemoryManager}
+import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, Fiber, FiberCache, FiberCacheManager, MemoryManager}
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics.{StatisticsManager, StatsAnalysisResult}
 import org.apache.spark.sql.execution.datasources.oap.utils.NonNullKeyReader
@@ -54,7 +54,7 @@ private[oap] case class BitmapReader(
   protected var bmOffsetListCache: FiberCache = _
   protected var bmFooterCache: FiberCache = _
 
-  protected var bmNullListCache: FiberCache = _
+  protected var bmNullListFiber: Fiber = _
   protected var bmNullEntryOffset: Int = _
   protected var bmNullEntrySize: Int = _
 
@@ -165,10 +165,9 @@ private[oap] case class BitmapReader(
       idxPath.toString, BitmapIndexSectionId.entryOffsetsSection, 0)
     bmOffsetListCache = FiberCacheManager.get(offsetListFiber, conf)
 
-    val nullListFiber = BitmapFiber(
+    bmNullListFiber = BitmapFiber(
       () => loadBmSection(fin, bmNullEntryOffset, bmNullEntrySize),
       idxPath.toString, BitmapIndexSectionId.entryNullSection, 0)
-    bmNullListCache = FiberCacheManager.get(nullListFiber, conf)
   }
 
   protected def clearCache(): Unit = {
@@ -177,9 +176,6 @@ private[oap] case class BitmapReader(
     }
     if (bmOffsetListCache != null) {
       bmOffsetListCache.release
-    }
-    if (bmNullListCache != null) {
-      bmNullListCache.release
     }
     if (bmFooterCache != null) {
       bmFooterCache.release
