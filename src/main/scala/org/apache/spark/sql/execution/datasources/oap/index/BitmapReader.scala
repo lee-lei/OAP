@@ -20,28 +20,26 @@ package org.apache.spark.sql.execution.datasources.oap.index
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FSDataInputStream, Path}
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateOrdering
 import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.execution.datasources.oap.Key
 import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, Fiber, FiberCache}
+import org.apache.spark.sql.execution.datasources.oap.index.impl.IndexFileReaderImpl
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics.{StatisticsManager, StatsAnalysisResult}
 import org.apache.spark.sql.execution.datasources.oap.utils.NonNullKeyReader
 import org.apache.spark.sql.oap.OapRuntime
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.util.ShutdownHookManager
 
 private[oap] case class BitmapReader(
+    fileReader: IndexFileReaderImpl,
     intervalArray: ArrayBuffer[RangeInterval],
     keySchema: StructType,
-    idxPath: Path,
     conf: Configuration) {
 
   private var _totalRows: Long = 0
-  private val memoryManager = OapRuntime.getOrCreate.memoryManager
   // TODO: use hash instead of order compare.
   @transient protected var ordering: Ordering[Key] =
     GenerateOrdering.create(keySchema)
@@ -64,12 +62,11 @@ private[oap] case class BitmapReader(
 
   override def toString: String = "BitmapReader"
 
-  private def getFooterCache(fin: FSDataInputStream): Unit = {
-    val idxFileSize = idxPath.getFileSystem(conf).getFileStatus(idxPath).getLen
-    val footerOffset = idxFileSize.toInt - BITMAP_FOOTER_SIZE
+  private def getFooterCache(): Unit = {
+    val footerOffset = fileReader.getLen.toInt - BITMAP_FOOTER_SIZE
     val footerFiber = BitmapFiber(
-      () => loadBmSection(fin, footerOffset, BITMAP_FOOTER_SIZE),
-      idxPath.toString, BitmapIndexSectionId.footerSection, 0)
+      () => fileReader.readFiberCache(footerOffset, BITMAP_FOOTER_SIZE),
+      fileReader.getName, BitmapIndexSectionId.footerSection, 0)
     bmFooterCache = fiberCacheManager.get(footerFiber, conf)
     // Calculate total rows right after footer cache is loaded.
     _totalRows = bmFooterCache.getInt(IndexUtils.INT_SIZE * 7)
@@ -80,9 +77,6 @@ private[oap] case class BitmapReader(
     if (IndexFile.VERSION_NUM != versionNum) {
       throw new OapException("Bitmap Index File version is not compatible!")
     }
-
-  protected def loadBmSection(fin: FSDataInputStream, offset: Int, size: Int): FiberCache =
-    memoryManager.toIndexFiberCache(fin, offset.toLong, size)
 
   protected def getIdxOffset(fiberCache: FiberCache, baseOffset: Long, idx: Int): Int =
     fiberCache.getInt(baseOffset + idx * 4)
@@ -142,8 +136,8 @@ private[oap] case class BitmapReader(
     })
   }
 
-  protected def getDesiredSegments(fin: FSDataInputStream): Unit = {
-    getFooterCache(fin)
+  protected def initDesiredSegments(): Unit = {
+    getFooterCache()
     assert(bmFooterCache != null)
     val versionNum = bmFooterCache.getInt(0)
     checkVersionNum(versionNum)
@@ -160,18 +154,18 @@ private[oap] case class BitmapReader(
     val offsetListOffset = entryListOffset + entryListTotalSize + bmNullEntrySize
 
     val uniqueKeyListFiber = BitmapFiber(
-      () => loadBmSection(fin, uniqueKeyListOffset, uniqueKeyListTotalSize),
-      idxPath.toString, BitmapIndexSectionId.keyListSection, 0)
+      () => fileReader.readFiberCache(uniqueKeyListOffset, uniqueKeyListTotalSize),
+      fileReader.getName, BitmapIndexSectionId.keyListSection, 0)
     bmUniqueKeyListCache = fiberCacheManager.get(uniqueKeyListFiber, conf)
 
     val offsetListFiber = BitmapFiber(
-      () => loadBmSection(fin, offsetListOffset, offsetListTotalSize),
-      idxPath.toString, BitmapIndexSectionId.entryOffsetsSection, 0)
+      () => fileReader.readFiberCache(offsetListOffset, offsetListTotalSize),
+      fileReader.getName, BitmapIndexSectionId.entryOffsetsSection, 0)
     bmOffsetListCache = fiberCacheManager.get(offsetListFiber, conf)
 
     bmNullListFiber = BitmapFiber(
-      () => loadBmSection(fin, bmNullEntryOffset, bmNullEntrySize),
-      idxPath.toString, BitmapIndexSectionId.entryNullSection, 0)
+      () => fileReader.readFiberCache(bmNullEntryOffset, bmNullEntrySize),
+      fileReader.getName, BitmapIndexSectionId.entryNullSection, 0)
   }
 
   protected def clearCache(): Unit = {
@@ -188,33 +182,20 @@ private[oap] case class BitmapReader(
 
   def totalRows(): Long = _totalRows
 
-  def close(fin: FSDataInputStream): Unit =
-    try {
-      fin.close
-    } catch {
-      case e: Exception =>
-        if (!ShutdownHookManager.inShutdown()) {
-          throw new OapException("Exception in FSDataInputStream.close()", e)
-      }
-    }
-
   def analyzeStatistics(): StatsAnalysisResult = {
-    val fin = idxPath.getFileSystem(conf).open(idxPath)
-    getFooterCache(fin)
+    getFooterCache()
     // The stats offset and size are located in the end of bitmap footer segment.
     // See the comments in BitmapIndexRecordWriter.scala.
     val statsOffset = bmFooterCache.getLong(BITMAP_FOOTER_SIZE - IndexUtils.LONG_SIZE * 2)
     val statsSize = bmFooterCache.getLong(BITMAP_FOOTER_SIZE - IndexUtils.LONG_SIZE)
     val bmStatsContentFiber = BitmapFiber(
-      () => loadBmSection(fin, statsOffset.toInt, statsSize.toInt),
-      idxPath.toString, BitmapIndexSectionId.statsContentSection, 0)
+      () => fileReader.readFiberCache(statsOffset.toInt, statsSize.toInt),
+      fileReader.getName, BitmapIndexSectionId.statsContentSection, 0)
     val bmStatsContentCache = fiberCacheManager.get(bmStatsContentFiber, conf)
     val stats = StatisticsManager.read(bmStatsContentCache, 0, keySchema)
     val res = StatisticsManager.analyse(stats, intervalArray, conf)
     bmFooterCache.release
     bmStatsContentCache.release
-    close(fin)
     res
   }
-
 }

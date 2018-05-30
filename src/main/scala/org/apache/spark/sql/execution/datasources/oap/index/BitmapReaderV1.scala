@@ -24,22 +24,21 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FSDataInputStream, Path}
 import org.roaringbitmap.FastAggregation
 import org.roaringbitmap.RoaringBitmap
 
 import org.apache.spark.sql.execution.datasources.oap.filecache.{BitmapFiber, FiberCache}
+import org.apache.spark.sql.execution.datasources.oap.index.impl.IndexFileReaderImpl
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.types.StructType
 
 private[oap] class BitmapReaderV1(
-    fin: FSDataInputStream,
+    fileReader: IndexFileReaderImpl,
     intervalArray: ArrayBuffer[RangeInterval],
     internalLimit: Int,
     keySchema: StructType,
-    idxPath: Path,
     conf: Configuration)
-    extends BitmapReader(intervalArray, keySchema, idxPath, conf) with Iterator[Int] {
+    extends BitmapReader(fileReader, intervalArray, keySchema, conf) with Iterator[Int] {
 
   @transient private var bmRowIdIterator: Iterator[Integer] = _
   private var empty: Boolean = _
@@ -50,7 +49,7 @@ private[oap] class BitmapReaderV1(
   override def toString: String = "BitmapReaderV1"
 
   override def clearCache(): Unit = {
-    super.clearCache
+    super.clearCache()
     if (bmNullListCache != null) {
       bmNullListCache.release
     }
@@ -76,8 +75,8 @@ private[oap] class BitmapReaderV1(
           (startIdx until (endIdx + 1)).map(idx => {
             val curIdxOffset = getIdxOffset(bmOffsetListCache, 0L, idx)
             val entrySize = getIdxOffset(bmOffsetListCache, 0L, idx + 1) - curIdxOffset
-            val entryFiber = BitmapFiber(() => loadBmSection(fin, curIdxOffset, entrySize),
-              idxPath.toString, BitmapIndexSectionId.entryListSection, idx)
+            val entryFiber = BitmapFiber(() => fileReader.readFiberCache(curIdxOffset, entrySize),
+              fileReader.getName, BitmapIndexSectionId.entryListSection, idx)
             val entryCache = fiberCacheManager.get(entryFiber, conf)
             val entry = getDesiredBitmap(entryCache)
             entryCache.release
@@ -94,9 +93,9 @@ private[oap] class BitmapReaderV1(
     }
   }
 
-  def getRowIdIterator(): Unit = {
+  def initRowIdIterator(): Unit = {
     try {
-      getDesiredSegments(fin)
+      initDesiredSegments()
       val bitmapArray = getDesiredBitmapArray
       if (bitmapArray.nonEmpty) {
         if (internalLimit > 0) {
@@ -112,7 +111,7 @@ private[oap] class BitmapReaderV1(
         empty = true
       }
     } finally {
-      clearCache
+      clearCache()
     }
   }
 }

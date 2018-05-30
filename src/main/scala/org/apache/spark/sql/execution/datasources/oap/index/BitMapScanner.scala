@@ -17,10 +17,12 @@
 package org.apache.spark.sql.execution.datasources.oap.index
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FSDataInputStream, Path}
+import org.apache.hadoop.fs.Path
 
 import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.execution.datasources.oap.IndexMeta
+import org.apache.spark.sql.execution.datasources.oap.index.OapIndexProperties.IndexVersion
+import org.apache.spark.sql.execution.datasources.oap.index.impl.IndexFileReaderImpl
 import org.apache.spark.sql.execution.datasources.oap.io.IndexFile
 import org.apache.spark.sql.execution.datasources.oap.statistics.StatsAnalysisResult
 
@@ -40,43 +42,41 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
     // Currently OAP index type supports the column with one single field.
     assert(keySchema.fields.length == 1)
     val idxPath = IndexUtils.indexFileFromDataFile(dataPath, meta.name, meta.time)
+    val fileReader = IndexFileReaderImpl(conf, idxPath)
 
-    val fin = idxPath.getFileSystem(conf).open(idxPath)
-    val indexVersion = readHead(fin, 0)
-    val reader =
-      indexVersion match {
-        case 1 =>
-          val reader = new BitmapReaderV1(
-            fin, intervalArray, internalLimit, keySchema, idxPath, conf)
-          reader.getRowIdIterator
-          bmRowIdIterator = reader
-          reader
-        case 2 =>
-          val reader = new BitmapReaderV2(
-            fin, intervalArray, internalLimit, keySchema, idxPath, conf)
-          reader.getRowIdIterator
-          bmRowIdIterator = reader
-          reader
-        case _ =>
-          throw new OapException("not supported bitmap index version. " + indexVersion)
-      }
-    _totalRows = reader.totalRows
-    reader.close(fin)
+    val bitmapReader = IndexUtils.readVersion(fileReader) match {
+      case Some(version) =>
+        IndexVersion(version) match {
+          case IndexVersion.OAP_INDEX_V1 =>
+            val reader = new BitmapReaderV2(
+              fileReader, intervalArray, internalLimit, keySchema, conf)
+            reader.initRowIdIterator
+            bmRowIdIterator = reader
+            reader
+          case IndexVersion.OAP_INDEX_V2 =>
+            val reader = new BitmapReaderV2(
+              fileReader, intervalArray, internalLimit, keySchema, conf)
+            reader.initRowIdIterator
+            bmRowIdIterator = reader
+            reader
+        }
+      case None =>
+        throw new OapException("not a valid index file")
+    }
+    _totalRows = bitmapReader.totalRows
+    fileReader.close
     this
   }
 
   override protected def analyzeStatistics(
       idxPath: Path,
       conf: Configuration): StatsAnalysisResult = {
-    val reader = BitmapReader(intervalArray, keySchema, idxPath, conf)
+    val fileReader = IndexFileReaderImpl(conf, idxPath)
+    val reader = BitmapReader(fileReader, intervalArray, keySchema, conf)
+    fileReader.close
     reader.analyzeStatistics
   }
 
   override def toString: String = "BitMapScanner"
 
-  private def readHead(fin: FSDataInputStream, offset: Int): Int = {
-    val magicBytes = new Array[Byte](IndexFile.VERSION_LENGTH)
-    fin.readFully(offset, magicBytes)
-    IndexUtils.deserializeVersion(magicBytes).get
-  }
 }
