@@ -27,6 +27,14 @@ import org.apache.spark.sql.execution.datasources.oap.index.impl.IndexFileReader
 import org.apache.spark.sql.execution.datasources.oap.utils.{BitmapUtils, OapBitmapWrappedFiberCache}
 import org.apache.spark.sql.types.StructType
 
+/* TODO: The bitmap reader v2 is to just directly get the row ID lists from fiber cache in off-heap.
+ * Thus it needs to ensure that the bitmap fiber cache is residing in cache manager before the
+ * current query is finished. However, so far the existing guava cache manager may evict the fiber
+ * due to the maximum size constraint. The eviction policy is using LRU and it doesn't check if it's
+ * using or not. The solution is to improve the fiber cache manager to free unused cache memory to
+ * alleviate the cache eviction by size, and meanwhile keep still using cache memory. Even if it's
+ * evicted, put it back into cache as long as it's still using. Thanks.
+ */
 private[oap] class BitmapReaderV2(
     fileReader: IndexFileReaderImpl,
     intervalArray: ArrayBuffer[RangeInterval],
