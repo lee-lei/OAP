@@ -41,14 +41,16 @@ private[oap] class BitmapReaderV2(
 
  /* V2 is directly using fiber cache. Thus it needs to ensure that the bitmap fiber cache is
   * residing in cache manager before the current query is finished. The current solution is to
-  * release the fibers after iterating is finished. However, the side effect is to keep the high
-  * memory pressure in cache manager.
+  * release the fibers after iterating is finished. However, the side effect for this soluction
+  * is to keep the high memory pressure in cache manager.
   * TODO: The solution for the above side effect is to improve the fiber cache manager to free
   * unused cache memory to alleviate the cache eviction by size, and meanwhile keep still using
   * cache memory. Even if it's evicted, put it back into cache as long as it's still using.
   */
   override def hasNext: Boolean =
-    if (!empty && bmRowIdIterator.hasNext) true else {
+    if (!empty && bmRowIdIterator.hasNext) {
+      true
+    } else {
       clearCache()
       false
     }
