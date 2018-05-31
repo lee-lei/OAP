@@ -48,7 +48,7 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
       case Some(version) =>
         IndexVersion(version) match {
           case IndexVersion.OAP_INDEX_V1 =>
-            val reader = new BitmapReaderV2(
+            val reader = new BitmapReaderV1(
               fileReader, intervalArray, internalLimit, keySchema, conf)
             reader.initRowIdIterator
             bmRowIdIterator = reader

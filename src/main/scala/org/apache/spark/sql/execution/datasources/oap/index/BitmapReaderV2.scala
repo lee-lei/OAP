@@ -27,14 +27,6 @@ import org.apache.spark.sql.execution.datasources.oap.index.impl.IndexFileReader
 import org.apache.spark.sql.execution.datasources.oap.utils.{BitmapUtils, OapBitmapWrappedFiberCache}
 import org.apache.spark.sql.types.StructType
 
-/* TODO: The bitmap reader v2 is to just directly get the row ID lists from fiber cache in off-heap.
- * Thus it needs to ensure that the bitmap fiber cache is residing in cache manager before the
- * current query is finished. However, so far the existing guava cache manager may evict the fiber
- * due to the maximum size constraint. The eviction policy is using LRU and it doesn't check if it's
- * using or not. The solution is to improve the fiber cache manager to free unused cache memory to
- * alleviate the cache eviction by size, and meanwhile keep still using cache memory. Even if it's
- * evicted, put it back into cache as long as it's still using. Thanks.
- */
 private[oap] class BitmapReaderV2(
     fileReader: IndexFileReaderImpl,
     intervalArray: ArrayBuffer[RangeInterval],
@@ -47,7 +39,20 @@ private[oap] class BitmapReaderV2(
   private var bmWfcSeq: Seq[OapBitmapWrappedFiberCache] = _
   private var empty: Boolean = _
 
-  override def hasNext: Boolean = !empty && bmRowIdIterator.hasNext
+ /* V2 is directly using fiber cache. Thus it needs to ensure that the bitmap fiber cache is
+  * residing in cache manager before the current query is finished. The current solution is to
+  * release the fibers after iterating is finished. However, the side effect is to keep the high
+  * memory pressure in cache manager.
+  * TODO: The solution for the above side effect is to improve the fiber cache manager to free
+  * unused cache memory to alleviate the cache eviction by size, and meanwhile keep still using
+  * cache memory. Even if it's evicted, put it back into cache as long as it's still using.
+  */
+  override def hasNext: Boolean =
+    if (!empty && bmRowIdIterator.hasNext) true else {
+      clearCache()
+      false
+    }
+
   override def next(): Int = bmRowIdIterator.next()
   override def toString: String = "BitmapReaderV2"
 
@@ -86,19 +91,15 @@ private[oap] class BitmapReaderV2(
   }
 
   def initRowIdIterator(): Unit = {
-    try {
-      initDesiredSegments()
-      bmWfcSeq = getDesiredWfcSeq
-      if (bmWfcSeq.nonEmpty) {
-        val iterator = BitmapUtils.iterator(bmWfcSeq)
-        bmRowIdIterator =
-          if (internalLimit > 0) iterator.take(internalLimit) else iterator
-        empty = false
-      } else {
-        empty = true
-      }
-    } finally {
-      clearCache()
+    initDesiredSegments()
+    bmWfcSeq = getDesiredWfcSeq
+    if (bmWfcSeq.nonEmpty) {
+      val iterator = BitmapUtils.iterator(bmWfcSeq)
+      bmRowIdIterator =
+        if (internalLimit > 0) iterator.take(internalLimit) else iterator
+      empty = false
+    } else {
+      empty = true
     }
   }
 }
