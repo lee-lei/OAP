@@ -154,20 +154,13 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
     .build[Fiber, FiberCache]()
 
   override def get(fiber: Fiber, conf: Configuration): FiberCache = {
-    val readLock = FiberLockManager.getFiberLock(fiber).readLock()
-    readLock.lock()
-    try {
-      val fiberCache = cache.get(fiber, cacheLoader(fiber, conf))
-      // Avoid loading a fiber larger than MAX_WEIGHT / CONCURRENCY_LEVEL
-      assert(fiberCache.size() <= MAX_WEIGHT * KB / CONCURRENCY_LEVEL,
-        s"Failed to cache fiber(${Utils.bytesToString(fiberCache.size())}) " +
-          s"with cache's MAX_WEIGHT" +
-          s"(${Utils.bytesToString(MAX_WEIGHT.toLong * KB.toLong)}) / $CONCURRENCY_LEVEL")
-      fiberCache.occupy()
-      fiberCache
-    } finally {
-      readLock.unlock()
-    }
+    /* Guava cache manager provides the synchronized add/write if the entry is missed and
+     * concurrent read if the entry is hit. In addition, Guava Cache will automatically
+     * first evict the entry if the size is above MAX_WEIGHT * KB / CONCURRENCY_LEVEL.
+     */
+    val fiberCache = cache.get(fiber, cacheLoader(fiber, conf))
+    fiberCache.occupy()
+    fiberCache
   }
 
   override def getIfPresent(fiber: Fiber): FiberCache = cache.getIfPresent(fiber)
