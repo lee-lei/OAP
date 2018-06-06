@@ -72,8 +72,11 @@ private[oap] case class BitMapScanner(idxMeta: IndexMeta) extends IndexScanner(i
       conf: Configuration): StatsAnalysisResult = {
     val fileReader = IndexFileReaderImpl(conf, idxPath)
     val reader = BitmapReader(fileReader, intervalArray, keySchema, conf)
-    fileReader.close
-    reader.analyzeStatistics
+    try {
+      reader.analyzeStatistics
+    } finally {
+      fileReader.close
+    }
   }
 
   override def toString: String = "BitMapScanner"
