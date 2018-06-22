@@ -23,7 +23,7 @@ import org.apache.hadoop.fs.{Path, RawLocalFileSystem}
 import org.scalatest.BeforeAndAfterEach
 
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.execution.datasources.oap.{DataSourceMeta, OapFileFormat}
 import org.apache.spark.sql.execution.datasources.oap.statistics.StatsAnalysisResult
 import org.apache.spark.sql.internal.oap.OapConf
@@ -107,6 +107,17 @@ class BitmapAnalyzeStatisticsSuite extends QueryTest with SharedOapContextWithDi
           bitmapRes == StatsAnalysisResult.USE_INDEX), true)
       }
     }
+    sql("drop oindex idxa on oap_test")
+  }
+
+  test("Bitmap index typical equal test") {
+    val data: Seq[(Int, String)] = (1 to 200).map { i => (i, s"this is test $i") }
+    data.toDF("key", "value").createOrReplaceTempView("t")
+    sql("insert overwrite table oap_test select * from t")
+    sql("create oindex idxa on oap_test (a) USING BITMAP")
+    assert(sql(s"SELECT * FROM oap_test WHERE a = 10 AND a = 11").count() == 0)
+    checkAnswer(sql(s"SELECT * FROM oap_test WHERE a = 20 OR a = 21"),
+      Row(20, "this is test 20") :: Row(21, "this is test 21") :: Nil)
     sql("drop oindex idxa on oap_test")
   }
 }
