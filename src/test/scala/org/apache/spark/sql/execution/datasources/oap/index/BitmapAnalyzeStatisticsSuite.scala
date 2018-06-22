@@ -41,7 +41,7 @@ import org.apache.spark.util.Utils
  * Thus it will throw the exception if the input stream is closed before the file read.
  */
 
-private[oap] class TestOapSessionWithDifferentFileSystem(sc: SparkContext)
+private[oap] class TestOapSessionWithRawLocalFileSystem(sc: SparkContext)
     extends TestSparkSession(sc) { self =>
 
   def this(sparkConf: SparkConf) {
@@ -53,13 +53,13 @@ private[oap] class TestOapSessionWithDifferentFileSystem(sc: SparkContext)
   }
 }
 
-trait SharedOapContextWithDifferentFileSystem extends SharedOapContextBase {
+trait SharedOapContextWithRawLocalFileSystem extends SharedOapContextBase {
   protected override def createSparkSession: TestSparkSession = {
-    new TestOapSessionWithDifferentFileSystem(sparkConf)
+    new TestOapSessionWithRawLocalFileSystem(sparkConf)
   }
 }
 
-class BitmapAnalyzeStatisticsSuite extends QueryTest with SharedOapContextWithDifferentFileSystem
+class BitmapAnalyzeStatisticsSuite extends QueryTest with SharedOapContextWithRawLocalFileSystem
     with BeforeAndAfterEach {
   import testImplicits._
 
