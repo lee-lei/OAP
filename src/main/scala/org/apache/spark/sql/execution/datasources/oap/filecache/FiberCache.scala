@@ -51,45 +51,11 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
     _refCount.decrementAndGet()
   }
 
-  def tryDispose(): Boolean = {
-    require(fiberId != null, "FiberId shouldn't be null for this FiberCache")
-    val startTime = System.currentTimeMillis()
-    val writeLockOp = OapRuntime.get.map(_.fiberLockManager.getFiberLock(fiberId).writeLock())
-    writeLockOp match {
-      case None => return true // already stopped OapRuntime
-      case Some(writeLock) =>
-        // Give caller a chance to deal with the long wait case.
-        while (System.currentTimeMillis() - startTime <= DISPOSE_TIMEOUT) {
-          if (refCount != 0) {
-            // LRU access (get and occupy) done, but fiber was still occupied by at least one
-            // reader, so it needs to sleep some time to see if the reader done.
-            // Otherwise, it becomes a polling loop.
-            // TODO: use lock/sync-obj to leverage the concurrency APIs instead of explicit sleep.
-            Thread.sleep(100)
-          } else {
-            if (writeLock.tryLock(200, TimeUnit.MILLISECONDS)) {
-              try {
-                if (refCount == 0) {
-                  realDispose()
-                  return true
-                }
-              } finally {
-                writeLock.unlock()
-              }
-            }
-          }
-        }
-    }
-    logWarning(s"Fiber Cache Dispose waiting detected for $fiberId")
-    false
-  }
-
   protected var disposed = false
   def isDisposed: Boolean = disposed
-  protected[filecache] def realDispose(): Unit = {
+  def realDispose(): Unit = {
     if (!disposed) {
       OapRuntime.get.foreach(_.memoryManager.free(fiberData))
-      OapRuntime.get.foreach(_.fiberLockManager.removeFiberLock(fiberId))
     }
     disposed = true
   }
@@ -106,7 +72,7 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
     // NOTE: A trick here. Since every function need to get memory data has to get here first.
     // So, here check the if the memory has been freed.
     if (disposed) {
-      throw new OapException("Try to access a freed memory")
+      throw new OapException("The memory is freed already.")
     }
     fiberData.getBaseObject
   }
