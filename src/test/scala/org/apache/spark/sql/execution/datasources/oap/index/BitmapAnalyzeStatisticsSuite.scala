@@ -30,9 +30,9 @@ import org.apache.spark.util.Utils
  * By default, the spark and oap tests are using the same debug file system which
  * will re-open the file for each file read. Therefore the file read will not be
  * impacted even if the input stream is closed already.
- * This test is to mimic the same file system with the customer's QA environment.
- * Thus it will throw the exception if the input stream is closed before the file read
- * when the bimap scanner tries to analyze the statistics.
+ * This test is to mimic the same file system with the customer's QA environment to
+ * check and verify that the exception will be thrown as expected if the input stream
+ * is closed before the file read when the bimap scanner tries to analyze the statistics.
  */
 
 private[oap] class TestOapSessionWithRawLocalFileSystem(sc: SparkContext)
@@ -74,7 +74,6 @@ class BitmapAnalyzeStatisticsSuite extends QueryTest with SharedOapContextWithRa
     data.toDF("key", "value").createOrReplaceTempView("t")
     sql("insert overwrite table oap_test select * from t")
     sql("create oindex idxa on oap_test (a) USING BITMAP")
-    assert(sql(s"SELECT * FROM oap_test WHERE a = 10 AND a = 11").count() == 0)
     checkAnswer(sql(s"SELECT * FROM oap_test WHERE a = 20 OR a = 21"),
       Row(20, "this is test 20") :: Row(21, "this is test 21") :: Nil)
     sql("drop oindex idxa on oap_test")
