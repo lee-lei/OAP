@@ -41,49 +41,35 @@ import org.apache.spark.util.collection.BitSet
  * 2. ensure the queue to be empty as long as all the pending fibers are released by the last users.
  * With the above assurance, the memory pressure will be significantly mitigated.
  */
-private[filecache] class CacheGuardian(maxMemory: Long) extends Thread with Logging {
+private[filecache] class CacheGuardian(maxMemory: Long) extends Logging {
 
   private val _pendingFiberSize: AtomicLong = new AtomicLong(0)
 
   private val removalPendingQueue = new LinkedBlockingQueue[(FiberId, FiberCache)]()
 
-  def pendingFiberCount: Int = removalPendingQueue.size()
+  def removeFromEvictedQueue(fb: Fiber, fbc: FiberCache): Boolean = {
+    if (evictedQueue.remove((fb, fbc))) {
+      _pendingFiberSize.addAndGet(-fbc.size())
+      true
+    } else false
+  }
 
-  // If the last pending fiber is still using by users, the cache guardian thread will take
-  // it out to check the refCount and then put back in the queue.
-  // In this case, the size may be 1 or 0. After the last user releases it, the pending will
-  // be 0 soon. Therefore, it's not a big deal.
+  def pendingFiberCount: Int = evictedQueue.size()
+
   def pendingFiberSize: Long = _pendingFiberSize.get()
 
   // After the fiber is evicted by the guava cache manager, this evicted fiber will not
   // be gotten by other users to increase the reference count.
   // If the last user releases the fiber when it's evicted, we will free the memory accordingly.
   def addRemovalFiber(fiber: Fiber, fiberCache: FiberCache): Unit = {
-    if (fiber != null && fiberCache.refCount == 0) {
+    if (fiberCache != null && fiberCache.refCount == 0) {
       fiberCache.realDispose()
     } else {
       _pendingFiberSize.addAndGet(fiberCache.size())
-      removalPendingQueue.offer((fiber, fiberCache))
-    }
-    if (_pendingFiberSize.get() > maxMemory) {
-      logWarning("Fibers pending on removal use too much memory, " +
-          s"current: ${_pendingFiberSize.get()}, max: $maxMemory")
-    }
-  }
-
-  override def run(): Unit = {
-    while (true) {
-      val (fiber, fiberCache) = removalPendingQueue.take()
-      if (fiber != null && fiberCache.refCount == 0) {
-        fiberCache.realDispose()
-        _pendingFiberSize.addAndGet(-fiberCache.size())
-        logDebug(s"Fiber removed successfully. Fiber: $fiber")
-      } else {
-        removalPendingQueue.offer((fiber, fiberCache))
-        if (_pendingFiberSize.get() > maxMemory) {
-          logWarning("Fibers pending on removal use too much memory, " +
-              s"current: ${_pendingFiberSize.get()}, max: $maxMemory")
-        }
+      evictedQueue.offer((fiber, fiberCache))
+      if (_pendingFiberSize.get() > maxMemory) {
+        logWarning("Fibers pending on removal use too much memory, " +
+            s"current: ${_pendingFiberSize.get()}, max: $maxMemory")
       }
     }
   }
@@ -118,6 +104,9 @@ private[sql] class FiberCacheManager(
     logDebug(s"Getting Fiber: $fiber")
     cacheBackend.get(fiber)
   }
+
+  def removeFromEvictedQueue(fb: Fiber, fbc: FiberCache): Boolean =
+    cacheBackend.removeFromEvictedQueue(fb, fbc)
 
   def releaseIndexCache(indexName: String): Unit = {
     logDebug(s"Going to remove all index cache of $indexName")

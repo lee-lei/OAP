@@ -39,6 +39,13 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
   protected val _refCount = new AtomicLong(0)
   def refCount: Long = _refCount.get()
 
+  private var _fiber: Fiber = null
+
+  def getFiber(): Fiber = _fiber
+
+  def setFiber(fb: Fiber): Unit =
+    _fiber = fb
+
   def occupy(): Unit = {
     _refCount.incrementAndGet()
   }
@@ -49,15 +56,19 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
   def release(): Unit = {
     assert(refCount > 0, "release a non-used fiber")
     _refCount.decrementAndGet()
+    if (refCount == 0 && fiberData != null &&
+      OapRuntime.getOrCreate.fiberCacheManager.removeFromEvictedQueue(_fiber, this)) {
+      realDispose()
+    }
   }
 
-  protected var disposed = false
-  def isDisposed: Boolean = disposed
+  private var disposed: Boolean = false
+  def isDisposed(): Boolean = disposed
   def realDispose(): Unit = {
     if (!disposed) {
+      disposed = true
       OapRuntime.get.foreach(_.memoryManager.free(fiberData))
     }
-    disposed = true
   }
 
   // For debugging
