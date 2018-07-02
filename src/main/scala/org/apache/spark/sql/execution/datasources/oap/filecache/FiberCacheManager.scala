@@ -67,6 +67,14 @@ private[filecache] class CacheGuardian(maxMemory: Long) extends Logging {
     } else {
       _pendingFiberSize.addAndGet(fiberCache.size())
       evictedQueue.offer((fiber, fiberCache))
+      // The last user thread checks that the fiber is not in the queue just before the another
+      // user thread evicts this same fiber and is trying to put it in the queue.
+      // Below is the last minute check after putting in the queue in order to resolve the above
+      // corner case.
+      // Even if not the above case, the remove is synchronized and won't impact the correctness.
+      if (fiberCache.refCount == 0 && evictedQueue.remove((fiber, fiberCache))) {
+        _pendingFiberSize.addAndGet(-fiberCache.size())
+      }
       if (_pendingFiberSize.get() > maxMemory) {
         logWarning("Fibers pending on removal use too much memory, " +
             s"current: ${_pendingFiberSize.get()}, max: $maxMemory")

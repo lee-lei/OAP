@@ -207,9 +207,9 @@ class FiberCacheManagerSuite extends SharedOapContext {
       new TestCaller(work)
     }
     val results = runners.map(t => pool.submit(t))
+    results.foreach(r => r.get())
     pool.shutdown()
     pool.awaitTermination(3000, TimeUnit.MILLISECONDS)
-    results.foreach(r => r.get())
     assert(fiberCacheManager.pendingCount == 0)
   }
 
