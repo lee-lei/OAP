@@ -43,8 +43,8 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
 
   def getFiber(): Fiber = _fiber
 
-  def setFiber(fb: Fiber): Unit =
-    _fiber = fb
+  def setFiber(fiber: Fiber): Unit =
+    _fiber = fiber
 
   def occupy(): Unit = {
     _refCount.incrementAndGet()

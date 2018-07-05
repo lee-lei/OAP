@@ -40,7 +40,7 @@ trait OapCache {
   def getFibers: Set[FiberId]
   def invalidate(fiber: FiberId): Unit
   def invalidateAll(fibers: Iterable[FiberId]): Unit
-  def removeFromEvictedQueue(fb: FiberId, fbc: FiberCache): Boolean
+  def removeFromEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Boolean
   def cacheSize: Long
   def cacheCount: Long
   def cacheStats: CacheStats
@@ -91,14 +91,13 @@ class SimpleOapCache extends OapCache with Logging {
     incFiberCountAndSize(fiberId, 1, fiberCache.size())
     fiberCache.occupy()
     // We only use fiber for once, and CacheGuardian will dispose it after release.
-    evictedCacheGuardian.addRemovalFiber(fiberId, fiberCache)
+    evictedCacheGuardian.addEvictedFiberToEvictedQueue(fiberId, fiberCache)
     decFiberCountAndSize(fiberId, 1, fiberCache.size())
     fiberCache
   }
 
-  override def removeFromEvictedQueue(fb: FiberId, fbc: FiberCache): Boolean =
-    evictedCacheGuardian.removeFromEvictedQueue(fb, fbc)
-
+  override def removeFromEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Boolean =
+    evictedCacheGuardian.removeFromEvictedQueue(fiberId, fiberCache)
 
   override def getIfPresent(fiber: FiberId): FiberCache = null
 
@@ -134,7 +133,7 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
   private val removalListener = new RemovalListener[FiberId, FiberCache] {
     override def onRemoval(notification: RemovalNotification[FiberId, FiberCache]): Unit = {
       logDebug(s"Put fiber into removal list. Fiber: ${notification.getKey}")
-      evictedCacheGuardian.addRemovalFiber(notification.getKey, notification.getValue)
+      evictedCacheGuardian.addEvictedFiberToEvictedQueue(notification.getKey, notification.getValue)
       _cacheSize.addAndGet(-notification.getValue.size())
       decFiberCountAndSize(notification.getKey, 1, notification.getValue.size())
     }
@@ -164,8 +163,8 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
       }
     })
 
-  override def removeFromEvictedQueue(fb: Fiber, fbc: FiberCache): Boolean =
-    evictedCacheGuardian.removeFromEvictedQueue(fb, fbc)
+  override def removeFromEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Boolean =
+    evictedCacheGuardian.removeFromEvictedQueue(fiber, fiberCache)
 
   override def get(fiber: FiberId): FiberCache = {
     val readLock = OapRuntime.getOrCreate.fiberLockManager.getFiberLock(fiber).readLock()

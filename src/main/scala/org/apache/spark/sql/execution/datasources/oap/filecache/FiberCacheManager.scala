@@ -35,10 +35,8 @@ import org.apache.spark.util.collection.BitSet
 /* We are based on the premise that the guava cache manager has a good eviction mechanism.
  * That indicates that the evicted fibers are relatively old and not accessed for a while and
  * won't be accessed in the future with the high possibility.
- * The cache guardian thread will be responsible to
- * 1. ensure the pending fibers in the evicted queue to be freed as soon as possible
- *    after it's released by the last users.
- * 2. ensure the queue to be empty as long as all the pending fibers are released by the last users.
+ * In order to ensure the pending fibers in the evicted queue to be freed as soon as possible,
+ * we let the last user release and free the fiber if it's in the evicted queue.
  * With the above assurance, the memory pressure will be significantly mitigated.
  */
 private[filecache] class CacheGuardian(maxMemory: Long) extends Logging {
@@ -47,11 +45,13 @@ private[filecache] class CacheGuardian(maxMemory: Long) extends Logging {
 
   private val removalPendingQueue = new LinkedBlockingQueue[(FiberId, FiberCache)]()
 
-  def removeFromEvictedQueue(fb: Fiber, fbc: FiberCache): Boolean = {
-    if (evictedQueue.remove((fb, fbc))) {
-      _pendingFiberSize.addAndGet(-fbc.size())
+  def removeFromEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Boolean = {
+    if (evictedQueue.remove((fiber, fiberCache))) {
+      _pendingFiberSize.addAndGet(-fiberCache.size())
       true
-    } else false
+    } else {
+      false
+    }
   }
 
   def pendingFiberCount: Int = evictedQueue.size()
@@ -61,7 +61,7 @@ private[filecache] class CacheGuardian(maxMemory: Long) extends Logging {
   // After the fiber is evicted by the guava cache manager, this evicted fiber will not
   // be gotten by other users to increase the reference count.
   // If the last user releases the fiber when it's evicted, we will free the memory accordingly.
-  def addRemovalFiber(fiber: Fiber, fiberCache: FiberCache): Unit = {
+  def addEvictedFiberToEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Unit = {
     if (fiberCache != null && fiberCache.refCount == 0) {
       fiberCache.realDispose()
     } else {
@@ -113,8 +113,8 @@ private[sql] class FiberCacheManager(
     cacheBackend.get(fiber)
   }
 
-  def removeFromEvictedQueue(fb: Fiber, fbc: FiberCache): Boolean =
-    cacheBackend.removeFromEvictedQueue(fb, fbc)
+  def removeFromEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Boolean =
+    cacheBackend.removeFromEvictedQueue(fiber, fiberCache)
 
   def releaseIndexCache(indexName: String): Unit = {
     logDebug(s"Going to remove all index cache of $indexName")
