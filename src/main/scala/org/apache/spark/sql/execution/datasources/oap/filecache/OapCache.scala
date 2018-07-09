@@ -87,7 +87,7 @@ class SimpleOapCache extends OapCache with Logging {
 
   override def get(fiberId: FiberId): FiberCache = {
     val fiberCache = cache(fiberId)
-    fiberCache.setFiber(fiber)
+    fiberCache.fiberId = fiberId
     incFiberCountAndSize(fiberId, 1, fiberCache.size())
     fiberCache.occupy()
     // We only use fiber for once, and CacheGuardian will dispose it after release.
@@ -154,7 +154,7 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
       override def load(key: FiberId): FiberCache = {
         val startLoadingTime = System.currentTimeMillis()
         val fiberCache = cache(key)
-        fiberCache.setFiber(key)
+        fiberCache.fiberId = key
         incFiberCountAndSize(key, 1, fiberCache.size())
         logDebug(
           "Load missed fiber took %s. Fiber: %s".format(Utils.getUsedTimeMs(startLoadingTime), key))

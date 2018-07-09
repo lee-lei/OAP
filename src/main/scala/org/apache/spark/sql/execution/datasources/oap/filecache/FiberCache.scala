@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution.datasources.oap.filecache
 
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
@@ -27,7 +28,8 @@ import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.memory.MemoryBlock
 import org.apache.spark.unsafe.types.UTF8String
 
-case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
+// TODO: make it an alias of MemoryBlock
+case class FiberCache(var fiberId: FiberId, protected val fiberData: MemoryBlock) extends Logging {
 
   // This is and only is set in `cache() of OapCache`
   // TODO: make it immutable
@@ -38,13 +40,6 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
   // We use readLock to lock occupy. _refCount need be atomic to make sure thread-safe
   protected val _refCount = new AtomicLong(0)
   def refCount: Long = _refCount.get()
-
-  private var _fiber: Fiber = null
-
-  def getFiber(): Fiber = _fiber
-
-  def setFiber(fiber: Fiber): Unit =
-    _fiber = fiber
 
   def occupy(): Unit = {
     _refCount.incrementAndGet()
@@ -57,7 +52,7 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
     assert(refCount > 0, "release a non-used fiber")
     _refCount.decrementAndGet()
     if (refCount == 0 && fiberData != null &&
-      OapRuntime.getOrCreate.fiberCacheManager.removeFromEvictedQueue(_fiber, this)) {
+      OapRuntime.getOrCreate.fiberCacheManager.removeFromEvictedQueue(fiber, this)) {
       realDispose()
     }
   }
@@ -121,9 +116,10 @@ case class FiberCache(protected val fiberData: MemoryBlock) extends Logging {
 }
 
 object FiberCache {
-  //  For test purpose :convert Array[Byte] to FiberCache
-  private[oap] def apply(data: Array[Byte]): FiberCache = {
-    val memoryBlock = new MemoryBlock(data, Platform.BYTE_ARRAY_OFFSET, data.length)
-    FiberCache(memoryBlock)
+  // For test purpose.
+  private[oap] def apply(out: ByteArrayOutputStream): FiberCache = {
+    val bytes = out.toByteArray
+    val memoryBlock = new MemoryBlock(bytes, Platform.BYTE_ARRAY_OFFSET, bytes.length)
+    FiberCache(null, memoryBlock)
   }
 }

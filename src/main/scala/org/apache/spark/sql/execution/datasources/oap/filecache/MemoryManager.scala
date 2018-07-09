@@ -106,12 +106,17 @@ private[sql] class MemoryManager(sparkEnv: SparkEnv) extends Logging {
       memoryBlock.getBaseObject,
       memoryBlock.getBaseOffset,
       bytes.length)
-    FiberCache(memoryBlock)
+    // Here is just allocating off heap memory for each fiber.
+    // Next at cache manager loader which is the entry point for users to get each fiber cache,
+    // it will first assign the specific fiber to each fiber cache.
+    // TODO: Change the process and data structure from fiber to fiber cache so that we can know
+    // the specific fiber here.
+    FiberCache(null, memoryBlock)
   }
 
   def getEmptyDataFiberCache(length: Long): FiberCache = {
     val memoryBlock = allocate(length)
-    FiberCache(memoryBlock)
+    FiberCache(null, memoryBlock)
   }
 
   def stop(): Unit = {
