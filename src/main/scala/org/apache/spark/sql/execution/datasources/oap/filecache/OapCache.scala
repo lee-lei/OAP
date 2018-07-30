@@ -35,10 +35,10 @@ trait OapCache {
   val dataFiberCount: AtomicLong = new AtomicLong(0)
   val indexFiberCount: AtomicLong = new AtomicLong(0)
 
-  def get(fiber: FiberId): FiberCache
-  def getIfPresent(fiber: FiberId): FiberCache
+  def get(fiberId: FiberId): FiberCache
+  def getIfPresent(fiberId: FiberId): FiberCache
   def getFibers: Set[FiberId]
-  def invalidate(fiber: FiberId): Unit
+  def invalidate(fiberId: FiberId): Unit
   def invalidateAll(fibers: Iterable[FiberId]): Unit
   def removeFromEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Boolean
   def cacheSize: Long
@@ -53,28 +53,28 @@ trait OapCache {
     indexFiberCount.set(0L)
   }
 
-  def incFiberCountAndSize(fiber: FiberId, count: Long, size: Long): Unit = {
-    if (fiber.isInstanceOf[DataFiberId]) {
+  def incFiberCountAndSize(fiberId: FiberId, count: Long, size: Long): Unit = {
+    if (fiberId.isInstanceOf[DataFiberId]) {
       dataFiberCount.addAndGet(count)
       dataFiberSize.addAndGet(size)
-    } else if (fiber.isInstanceOf[BTreeFiberId] || fiber.isInstanceOf[BitmapFiberId]) {
+    } else if (fiberId.isInstanceOf[BTreeFiberId] || fiberId.isInstanceOf[BitmapFiberId]) {
       indexFiberCount.addAndGet(count)
       indexFiberSize.addAndGet(size)
     }
   }
 
-  def decFiberCountAndSize(fiber: FiberId, count: Long, size: Long): Unit =
-    incFiberCountAndSize(fiber, -count, -size)
+  def decFiberCountAndSize(fiberId: FiberId, count: Long, size: Long): Unit =
+    incFiberCountAndSize(fiberId, -count, -size)
 
-  protected def cache(fiber: FiberId): FiberCache = {
-    val cache = fiber match {
+  protected def cache(fiberId: FiberId): FiberCache = {
+    val cache = fiberId match {
       case DataFiberId(file, columnIndex, rowGroupId) => file.cache(rowGroupId, columnIndex)
       case BTreeFiberId(getFiberData, _, _, _) => getFiberData.apply()
       case BitmapFiberId(getFiberData, _, _, _) => getFiberData.apply()
       case TestFiberId(getFiberData, _) => getFiberData.apply()
       case _ => throw new OapException("Unexpected FiberId type!")
     }
-    cache.fiberId = fiber
+    cache.fiberId = fiberId
     cache
   }
 
@@ -87,7 +87,6 @@ class SimpleOapCache extends OapCache with Logging {
 
   override def get(fiberId: FiberId): FiberCache = {
     val fiberCache = cache(fiberId)
-    fiberCache.fiberId = fiberId
     incFiberCountAndSize(fiberId, 1, fiberCache.size())
     fiberCache.occupy()
     // We only use fiber for once, and CacheGuardian will dispose it after release.
@@ -99,13 +98,13 @@ class SimpleOapCache extends OapCache with Logging {
   override def removeFromEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Boolean =
     evictedCacheGuardian.removeFromEvictedQueue(fiberId, fiberCache)
 
-  override def getIfPresent(fiber: FiberId): FiberCache = null
+  override def getIfPresent(fiberId: FiberId): FiberCache = null
 
   override def getFibers: Set[FiberId] = {
     Set.empty
   }
 
-  override def invalidate(fiber: FiberId): Unit = {}
+  override def invalidate(fiberId: FiberId): Unit = {}
 
   override def invalidateAll(fibers: Iterable[FiberId]): Unit = {}
 
@@ -154,7 +153,6 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
       override def load(key: FiberId): FiberCache = {
         val startLoadingTime = System.currentTimeMillis()
         val fiberCache = cache(key)
-        fiberCache.fiberId = key
         incFiberCountAndSize(key, 1, fiberCache.size())
         logDebug(
           "Load missed fiber took %s. Fiber: %s".format(Utils.getUsedTimeMs(startLoadingTime), key))
@@ -163,14 +161,14 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
       }
     })
 
-  override def removeFromEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Boolean =
-    evictedCacheGuardian.removeFromEvictedQueue(fiber, fiberCache)
+  override def removeFromEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Boolean =
+    evictedCacheGuardian.removeFromEvictedQueue(fiberId, fiberCache)
 
-  override def get(fiber: FiberId): FiberCache = {
-    val readLock = OapRuntime.getOrCreate.fiberLockManager.getFiberLock(fiber).readLock()
+  override def get(fiberId: FiberId): FiberCache = {
+    val readLock = OapRuntime.getOrCreate.fiberLockManager.getFiberLock(fiberId).readLock()
     readLock.lock()
     try {
-      val fiberCache = cacheInstance.get(fiber)
+      val fiberCache = cacheInstance.get(fiberId)
       // Avoid loading a fiber larger than MAX_WEIGHT / CONCURRENCY_LEVEL
       assert(fiberCache.size() <= MAX_WEIGHT * KB / CONCURRENCY_LEVEL,
         s"Failed to cache fiber(${Utils.bytesToString(fiberCache.size())}) " +
@@ -183,14 +181,14 @@ class GuavaOapCache(cacheMemory: Long, cacheGuardianMemory: Long) extends OapCac
     }
   }
 
-  override def getIfPresent(fiber: FiberId): FiberCache = cacheInstance.getIfPresent(fiber)
+  override def getIfPresent(fiberId: FiberId): FiberCache = cacheInstance.getIfPresent(fiberId)
 
   override def getFibers: Set[FiberId] = {
     cacheInstance.asMap().keySet().asScala.toSet
   }
 
-  override def invalidate(fiber: FiberId): Unit = {
-    cacheInstance.invalidate(fiber)
+  override def invalidate(fiberId: FiberId): Unit = {
+    cacheInstance.invalidate(fiberId)
   }
 
   override def invalidateAll(fibers: Iterable[FiberId]): Unit = {

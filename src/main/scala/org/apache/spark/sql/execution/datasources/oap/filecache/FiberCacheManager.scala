@@ -43,10 +43,10 @@ private[filecache] class CacheGuardian(maxMemory: Long) extends Logging {
 
   private val _pendingFiberSize: AtomicLong = new AtomicLong(0)
 
-  private val removalPendingQueue = new LinkedBlockingQueue[(FiberId, FiberCache)]()
+  private val evictedQueue = new LinkedBlockingQueue[(FiberId, FiberCache)]()
 
-  def removeFromEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Boolean = {
-    if (evictedQueue.remove((fiber, fiberCache))) {
+  def removeFromEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Boolean = {
+    if (evictedQueue.remove((fiberId, fiberCache))) {
       _pendingFiberSize.addAndGet(-fiberCache.size())
       true
     } else {
@@ -61,18 +61,18 @@ private[filecache] class CacheGuardian(maxMemory: Long) extends Logging {
   // After the fiber is evicted by the guava cache manager, this evicted fiber will not
   // be gotten by other users to increase the reference count.
   // If the last user releases the fiber when it's evicted, we will free the memory accordingly.
-  def addEvictedFiberToEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Unit = {
+  def addEvictedFiberToEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Unit = {
     if (fiberCache != null && fiberCache.refCount == 0) {
       fiberCache.realDispose()
     } else {
       _pendingFiberSize.addAndGet(fiberCache.size())
-      evictedQueue.offer((fiber, fiberCache))
+      evictedQueue.offer((fiberId, fiberCache))
       // The last user thread checks that the fiber is not in the queue just before the another
       // user thread evicts this same fiber and is trying to put it in the queue.
       // Below is the last minute check after putting in the queue in order to resolve the above
       // corner case.
       // Even if not the above case, the remove is synchronized and won't impact the correctness.
-      if (fiberCache.refCount == 0 && evictedQueue.remove((fiber, fiberCache))) {
+      if (fiberCache.refCount == 0 && evictedQueue.remove((fiberId, fiberCache))) {
         _pendingFiberSize.addAndGet(-fiberCache.size())
       }
       if (_pendingFiberSize.get() > maxMemory) {
@@ -108,13 +108,13 @@ private[sql] class FiberCacheManager(
   // NOTE: all members' init should be placed before this line.
   logDebug(s"Initialized FiberCacheManager")
 
-  def get(fiber: FiberId): FiberCache = {
-    logDebug(s"Getting Fiber: $fiber")
-    cacheBackend.get(fiber)
+  def get(fiberId: FiberId): FiberCache = {
+    logDebug(s"Getting Fiber: $fiberId")
+    cacheBackend.get(fiberId)
   }
 
-  def removeFromEvictedQueue(fiber: Fiber, fiberCache: FiberCache): Boolean =
-    cacheBackend.removeFromEvictedQueue(fiber, fiberCache)
+  def removeFromEvictedQueue(fiberId: FiberId, fiberCache: FiberCache): Boolean =
+    cacheBackend.removeFromEvictedQueue(fiberId, fiberCache)
 
   def releaseIndexCache(indexName: String): Unit = {
     logDebug(s"Going to remove all index cache of $indexName")
@@ -128,9 +128,9 @@ private[sql] class FiberCacheManager(
   }
 
   // Used by test suite
-  private[filecache] def releaseFiber(fiber: TestFiberId): Unit = {
-    if (cacheBackend.getIfPresent(fiber) != null) {
-      cacheBackend.invalidate(fiber)
+  private[filecache] def releaseFiber(fiberId: TestFiberId): Unit = {
+    if (cacheBackend.getIfPresent(fiberId) != null) {
+      cacheBackend.invalidate(fiberId)
     }
   }
 
@@ -221,17 +221,17 @@ private[sql] class DataFileMetaCacheManager extends Logging {
 
 private[sql] class FiberLockManager {
   private val lockMap = new ConcurrentHashMap[FiberId, ReentrantReadWriteLock]()
-  def getFiberLock(fiber: FiberId): ReentrantReadWriteLock = {
-    var lock = lockMap.get(fiber)
+  def getFiberLock(fiberId: FiberId): ReentrantReadWriteLock = {
+    var lock = lockMap.get(fiberId)
     if (lock == null) {
       val newLock = new ReentrantReadWriteLock()
-      val prevLock = lockMap.putIfAbsent(fiber, newLock)
+      val prevLock = lockMap.putIfAbsent(fiberId, newLock)
       lock = if (prevLock == null) newLock else prevLock
     }
     lock
   }
 
-  def removeFiberLock(fiber: FiberId): Unit = {
-    lockMap.remove(fiber)
+  def removeFiberLock(fiberId: FiberId): Unit = {
+    lockMap.remove(fiberId)
   }
 }

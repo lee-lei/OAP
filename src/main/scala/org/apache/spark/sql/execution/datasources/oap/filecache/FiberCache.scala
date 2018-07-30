@@ -31,12 +31,6 @@ import org.apache.spark.unsafe.types.UTF8String
 // TODO: make it an alias of MemoryBlock
 case class FiberCache(var fiberId: FiberId, protected val fiberData: MemoryBlock) extends Logging {
 
-  // This is and only is set in `cache() of OapCache`
-  // TODO: make it immutable
-  var fiberId: FiberId = _
-
-  val DISPOSE_TIMEOUT = 3000
-
   // We use readLock to lock occupy. _refCount need be atomic to make sure thread-safe
   protected val _refCount = new AtomicLong(0)
   def refCount: Long = _refCount.get()
@@ -52,7 +46,7 @@ case class FiberCache(var fiberId: FiberId, protected val fiberData: MemoryBlock
     assert(refCount > 0, "release a non-used fiber")
     _refCount.decrementAndGet()
     if (refCount == 0 && fiberData != null &&
-      OapRuntime.getOrCreate.fiberCacheManager.removeFromEvictedQueue(fiber, this)) {
+      OapRuntime.getOrCreate.fiberCacheManager.removeFromEvictedQueue(fiberId, this)) {
       realDispose()
     }
   }
