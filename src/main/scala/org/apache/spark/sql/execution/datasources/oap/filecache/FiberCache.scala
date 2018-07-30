@@ -28,8 +28,7 @@ import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.memory.MemoryBlock
 import org.apache.spark.unsafe.types.UTF8String
 
-// TODO: make it an alias of MemoryBlock
-case class FiberCache(var fiberId: FiberId, protected val fiberData: MemoryBlock) extends Logging {
+case class FiberCache(val fiberId: FiberId, protected val fiberData: MemoryBlock) extends Logging {
 
   // We use readLock to lock occupy. _refCount need be atomic to make sure thread-safe
   protected val _refCount = new AtomicLong(0)

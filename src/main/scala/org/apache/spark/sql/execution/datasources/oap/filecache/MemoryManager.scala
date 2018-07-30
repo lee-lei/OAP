@@ -81,24 +81,24 @@ private[sql] class MemoryManager(sparkEnv: SparkEnv) extends Logging {
   }
 
   // Used by IndexFile
-  def toIndexFiberCache(in: FSDataInputStream, position: Long, length: Int): FiberCache = {
+  def toIndexMemoryBlock(in: FSDataInputStream, position: Long, length: Int): MemoryBlock = {
     val bytes = new Array[Byte](length)
     in.readFully(position, bytes)
-    toFiberCache(bytes)
+    toMemoryBlock(bytes)
   }
 
   // Used by IndexFile. For decompressed data
-  def toIndexFiberCache(bytes: Array[Byte]): FiberCache = {
-    toFiberCache(bytes)
+  def toIndexMemoryBlock(bytes: Array[Byte]): MemoryBlock = {
+    toMemoryBlock(bytes)
   }
 
   // Used by OapDataFile since we need to parse the raw data in on-heap memory before put it into
   // off-heap memory
-  def toDataFiberCache(bytes: Array[Byte]): FiberCache = {
-    toFiberCache(bytes)
+  def toDataMemoryBlock(bytes: Array[Byte]): MemoryBlock = {
+    toMemoryBlock(bytes)
   }
 
-  private def toFiberCache(bytes: Array[Byte]): FiberCache = {
+  private def toMemoryBlock(bytes: Array[Byte]): MemoryBlock = {
     val memoryBlock = allocate(bytes.length)
     Platform.copyMemory(
       bytes,
@@ -106,18 +106,10 @@ private[sql] class MemoryManager(sparkEnv: SparkEnv) extends Logging {
       memoryBlock.getBaseObject,
       memoryBlock.getBaseOffset,
       bytes.length)
-    // Here is just allocating off heap memory for each fiber.
-    // Next at cache manager loader which is the entry point for users to get each fiber cache,
-    // it will first assign the specific fiber to each fiber cache.
-    // TODO: Change the process and data structure from fiber to fiber cache so that we can know
-    // the specific fiber here.
-    FiberCache(null, memoryBlock)
+    memoryBlock
   }
 
-  def getEmptyDataFiberCache(length: Long): FiberCache = {
-    val memoryBlock = allocate(length)
-    FiberCache(null, memoryBlock)
-  }
+  def getEmptyDataMemoryBlock(length: Long): MemoryBlock = allocate(length)
 
   def stop(): Unit = {
     memoryManager.releaseStorageMemory(oapMemory, MemoryMode.OFF_HEAP)

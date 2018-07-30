@@ -27,6 +27,7 @@ import com.google.common.cache._
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.oap.OapRuntime
+import org.apache.spark.unsafe.memory.MemoryBlock
 import org.apache.spark.util.Utils
 
 trait OapCache {
@@ -67,15 +68,14 @@ trait OapCache {
     incFiberCountAndSize(fiberId, -count, -size)
 
   protected def cache(fiberId: FiberId): FiberCache = {
-    val cache = fiberId match {
+    val memoryBlock: MemoryBlock = fiberId match {
       case DataFiberId(file, columnIndex, rowGroupId) => file.cache(rowGroupId, columnIndex)
       case BTreeFiberId(getFiberData, _, _, _) => getFiberData.apply()
       case BitmapFiberId(getFiberData, _, _, _) => getFiberData.apply()
       case TestFiberId(getFiberData, _) => getFiberData.apply()
       case _ => throw new OapException("Unexpected FiberId type!")
     }
-    cache.fiberId = fiberId
-    cache
+    FiberCache(fiberId, memoryBlock)
   }
 
 }
