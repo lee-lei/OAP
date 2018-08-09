@@ -249,4 +249,36 @@ object OapConf {
         "is empty, it will store in the data file path")
       .stringConf
       .createWithDefault("")
+
+  val ORC_VECTORIZED_READER_ENABLED =
+    SQLConfigBuilder("spark.sql.orc.enableVectorizedReader")
+      .doc("Enables vectorized orc decoding.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val COLUMN_VECTOR_OFFHEAP_ENABLED =
+    SQLConfigBuilder("spark.sql.columnVector.offheap.enabled")
+      .internal()
+      .doc("When true, use OffHeapColumnVector in ColumnarBatch.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val ORC_COPY_BATCH_TO_SPARK =
+    SQLConfigBuilder("spark.sql.orc.copyBatchToSpark")
+      .doc("Whether or not to copy the ORC columnar batch to Spark columnar batch in the " +
+        "vectorized ORC reader.")
+      .internal()
+      .booleanConf
+      .createWithDefault(false)
+
+  val ORC_COMPRESSION =
+    SQLConfigBuilder("spark.sql.orc.compression.codec")
+      .doc("Sets the compression codec used when writing ORC files. If either `compression` or " +
+        "`orc.compress` is specified in the table-specific options/properties, the precedence " +
+        "would be `compression`, `orc.compress`, `spark.sql.orc.compression.codec`." +
+        "Acceptable values include: none, uncompressed, snappy, zlib, lzo.")
+      .stringConf
+      .transform(_.toLowerCase(java.util.Locale.ROOT))
+      .checkValues(Set("none", "uncompressed", "snappy", "zlib", "lzo"))
+      .createWithDefault("snappy")
 }
