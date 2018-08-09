@@ -25,6 +25,13 @@ package org.apache.spark.sql.internal.oap
 object OapConf {
   import org.apache.spark.sql.internal.SQLConf.SQLConfigBuilder
 
+  val OAP_ORC_ENABLED =
+    SQLConfigBuilder("spark.sql.oap.orc.enable")
+      .internal()
+      .doc("Whether enable oap file format when encounter parquet files")
+      .booleanConf
+      .createWithDefault(true)
+
   val OAP_PARQUET_ENABLED =
     SQLConfigBuilder("spark.sql.oap.parquet.enable")
       .internal()
