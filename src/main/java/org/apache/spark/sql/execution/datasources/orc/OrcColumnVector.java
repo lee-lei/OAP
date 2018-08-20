@@ -44,7 +44,7 @@ public class OrcColumnVector extends org.apache.spark.sql.vectorized.ColumnVecto
 
   private int batchSize;
 
-  OrcColumnVector(DataType type, ColumnVector vector) {
+  public OrcColumnVector(DataType type, ColumnVector vector) {
     super(type);
 
     if (type instanceof TimestampType) {
