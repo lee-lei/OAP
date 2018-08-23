@@ -146,7 +146,8 @@ case class FileSourceScanExec(
     outputSchema: StructType,
     partitionFilters: Seq[Expression],
     dataFilters: Seq[Filter],
-    override val metastoreTableIdentifier: Option[TableIdentifier])
+    override val metastoreTableIdentifier: Option[TableIdentifier],
+    val forOapOrcColumnarBatch: Boolean = false)
   extends DataSourceScanExec {
 
   val supportsBatch = relation.fileFormat.supportBatch(
@@ -359,11 +360,19 @@ case class FileSourceScanExec(
     val scanTimeTotalNs = ctx.freshName("scanTime")
     ctx.addMutableState("long", scanTimeTotalNs, s"$scanTimeTotalNs = 0;")
 
-    val columnarBatchClz = "org.apache.spark.sql.execution.vectorized.ColumnarBatch"
+    val columnarBatchClz =
+      if (!forOapOrcColumnarBatch)
+        "org.apache.spark.sql.execution.vectorized.ColumnarBatch"
+      else
+        "org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch"
     val batch = ctx.freshName("batch")
     ctx.addMutableState(columnarBatchClz, batch, s"$batch = null;")
 
-    val columnVectorClz = "org.apache.spark.sql.execution.vectorized.ColumnVector"
+    val columnVectorClz =
+      if (!forOapOrcColumnarBatch)
+        "org.apache.spark.sql.execution.vectorized.ColumnVector"
+      else
+        "org.apache.spark.sql.vectorized.oap.orc.ColumnVector"
     val idx = ctx.freshName("batchIdx")
     ctx.addMutableState("int", idx, s"$idx = 0;")
     val colVars = output.indices.map(i => ctx.freshName("colInstance" + i))
@@ -391,6 +400,7 @@ case class FileSourceScanExec(
     val columnsBatchInput = (output zip colVars).map { case (attr, colVar) =>
       genCodeColumnVector(ctx, colVar, rowidx, attr.dataType, attr.nullable)
     }
+
     s"""
        |if ($batch == null) {
        |  $nextBatch();

@@ -86,6 +86,8 @@ object FileSourceStrategy extends Strategy with Logging {
 
       val selectedPartitions = _fsRelation.location.listFiles(partitionKeyFilters.toSeq)
 
+      // Below is used to indicate to read orc data with oap index accelerated.
+      var isOapOrcFileFormat = false
       val fsRelation: HadoopFsRelation = _fsRelation.fileFormat match {
         // TODO a better rule to check if we need to substitute the ParquetFileFormat
         // as OapFileFormat
@@ -128,6 +130,7 @@ object FileSourceStrategy extends Strategy with Logging {
               selectedPartitions.flatMap(p => p.files))
 
           if (oapFileFormat.hasAvailableIndex(normalizedFilters)) {
+            isOapOrcFileFormat = true
             logInfo("hasAvailableIndex = true, will replace with OapFileFormat.")
             val orcOptions: Map[String, String] =
               Map(SQLConf.ORC_FILTER_PUSHDOWN_ENABLED.key ->
@@ -186,7 +189,7 @@ object FileSourceStrategy extends Strategy with Logging {
           outputSchema,
           partitionKeyFilters.toSeq,
           pushedDownFilters,
-          table.map(_.identifier))
+          table.map(_.identifier), isOapOrcFileFormat)
 
       val afterScanFilter = afterScanFilters.toSeq.reduceOption(expressions.And)
       val withFilter = afterScanFilter.map(execution.FilterExec(_, scan)).getOrElse(scan)
