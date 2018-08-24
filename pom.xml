@@ -624,7 +624,7 @@
         <spark.internal.version>2.1.0</spark.internal.version>
         <scala.version>2.11.8</scala.version>
         <scala.binary.version>2.11</scala.binary.version>
-        <java.version>1.8</java.version>
+        <java.version>1.7</java.version>
       </properties>
       <build>
         <plugins>
