@@ -18,7 +18,6 @@
 package org.apache.spark.sql.execution.datasources.oap.orc;
 
 import java.io.IOException;
-import java.util.stream.IntStream;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -361,7 +360,10 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
     } else if (type instanceof StringType || type instanceof BinaryType) {
       BytesColumnVector data = ((BytesColumnVector)fromColumn);
       WritableColumnVector arrayData = toColumn.arrayData();
-      int totalNumBytes = IntStream.of(data.length).sum();
+      int totalNumBytes = 0;
+      for (int index = 0; index < batchSize; index++) {
+        totalNumBytes += data.length[index];
+      }
       arrayData.reserve(totalNumBytes);
       for (int index = 0, pos = 0; index < batchSize; pos += data.length[index], index++) {
         arrayData.putBytes(pos, data.length[index], data.vector[index], data.start[index]);
@@ -467,7 +469,10 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
     } else if (type instanceof StringType || type instanceof BinaryType) {
       BytesColumnVector vector = (BytesColumnVector)fromColumn;
       WritableColumnVector arrayData = toColumn.arrayData();
-      int totalNumBytes = IntStream.of(vector.length).sum();
+      int totalNumBytes = 0;
+      for (int index = 0; index < batchSize; index++) {
+        totalNumBytes += vector.length[index];
+      }
       arrayData.reserve(totalNumBytes);
       for (int index = 0, pos = 0; index < batchSize; pos += vector.length[index], index++) {
         if (fromColumn.isNull[index]) {
