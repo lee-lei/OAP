@@ -24,10 +24,6 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.spark.sql.internal.oap.OapConf;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.*;
-import org.apache.spark.sql.vectorized.ColumnVector;
-import org.apache.spark.sql.vectorized.ColumnarArray;
-import org.apache.spark.sql.vectorized.ColumnarMap;
-import org.apache.spark.unsafe.array.ByteArrayMethods;
 import org.apache.spark.unsafe.types.UTF8String;
 
 /**

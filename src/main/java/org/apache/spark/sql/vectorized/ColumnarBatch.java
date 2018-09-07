@@ -20,7 +20,6 @@ import java.util.*;
 
 import org.apache.spark.annotation.InterfaceStability;
 import org.apache.spark.sql.catalyst.InternalRow;
-import org.apache.spark.sql.vectorized.MutableColumnarRow;
 
 /**
  * This class wraps multiple ColumnVectors as a row-wise table. It provides a row view of this
