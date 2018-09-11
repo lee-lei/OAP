@@ -48,6 +48,10 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
 /**
  * This class is a copy of OrcColumnarBatchReader with minor changes to be able to
  * have a child class OapIndexOrcColumnarBatchReader.
+ * The minor changes are primarily categorized into below two things:
+ * 1. change the fields from private to protected in order to have a child class.
+ * 2. extract the common code in nextBatch method to readToColumnVectors which is used by
+ *    the child class as well.
  * To support vectorization in WholeStageCodeGen, this reader returns ColumnarBatch.
  * After creating, `initialize` and `initBatch` should be called sequentially.
  */
@@ -225,18 +229,9 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
     }
   }
 
-  /**
-   * Return true if there exists more data in the next batch. If exists, prepare the next batch
-   * by copying from ORC VectorizedRowBatch columns to Spark ColumnarBatch columns.
-   */
-  public boolean nextBatch() throws IOException {
-    recordReader.nextBatch(batch);
-    int batchSize = batch.size;
-    if (batchSize == 0) {
-      return false;
-    }
-    columnarBatch.setNumRows(batchSize);
-
+  // Below common code is extracted by oap index from the original nextBatch method.
+  // The child class IndexedOrcColumnarBatchReader will use it as well.
+  protected boolean readToColumnVectors(int batchSize) {
     if (!copyToSpark) {
       for (int i = 0; i < requiredFields.length; i++) {
         if (requestedColIds[i] != -1) {
@@ -267,6 +262,22 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
       }
     }
     return true;
+
+  }
+
+  /**
+   * Return true if there exists more data in the next batch. If exists, prepare the next batch
+   * by copying from ORC VectorizedRowBatch columns to Spark ColumnarBatch columns.
+   */
+  public boolean nextBatch() throws IOException {
+    recordReader.nextBatch(batch);
+    int batchSize = batch.size;
+    if (batchSize == 0) {
+      return false;
+    }
+    columnarBatch.setNumRows(batchSize);
+
+    return readToColumnVectors(batchSize);
   }
 
   protected void putRepeatingValues(

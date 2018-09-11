@@ -20,12 +20,8 @@ package org.apache.spark.sql.execution.datasources.oap.orc;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.WritableComparable;
-import org.apache.orc.TypeDescription;
-import org.apache.orc.mapred.OrcMapredRecordReader;
-import org.apache.orc.mapred.OrcStruct;
 
 import java.io.IOException;
-import java.util.List;
 
 /**
  * This record reader has rowIds in order to seek to specific rows to skip unused data.
@@ -34,7 +30,7 @@ import java.util.List;
 public class IndexedOrcMapreduceRecordReader<V extends WritableComparable>
     extends OrcMapreduceRecordReader<V> {
 
-  // Below three fields are added by Oap index.
+  // Below four fields are added by Oap index.
   private int[] rowIds;
 
   private int rowLength;
@@ -44,7 +40,7 @@ public class IndexedOrcMapreduceRecordReader<V extends WritableComparable>
   private int preRowIndex;
 
   public IndexedOrcMapreduceRecordReader(Path file, Configuration conf,
-                                              int[] rowIds) throws IOException {
+      int[] rowIds) throws IOException {
     super(file, conf);
     this.rowIds = rowIds;
     this.rowLength = rowIds.length;
@@ -68,7 +64,7 @@ public class IndexedOrcMapreduceRecordReader<V extends WritableComparable>
       if (batchSize == 0) {
         return false;
       }
-      int i = curRowIndex + 1;
+      int nextRowIndex = curRowIndex + 1;
       /* Orc readers support backward scan if the row Ids are out of order.
        * However, with the ascending ordered row Ids, the adjacent rows will
        * be scanned in the same batch. Below is expected that the row Ids are
@@ -76,12 +72,15 @@ public class IndexedOrcMapreduceRecordReader<V extends WritableComparable>
        * Find the next row Id which is not in the same batch with the current row Id.
        */
       preRowIndex = curRowIndex;
-      while (i < rowLength && (rowIds[curRowIndex] + batchSize) >= rowIds[i]) {
-        i++;
+      int curBatchMaxRowOffset = rowIds[curRowIndex] + batchSize;
+      while (nextRowIndex < rowLength && curBatchMaxRowOffset >= rowIds[nextRowIndex]) {
+        nextRowIndex++;
       }
-      curRowIndex = i;
+      curRowIndex = nextRowIndex;
       // Prepare to jump to the row for the next batch.
-      if (i < rowLength) {
+      // Use seekToRow if the next row index is four batch size greater than the current one
+      // in order to avoid the overhead of over frequent seeking.
+      if (curRowIndex < rowLength && rowIds[curRowIndex] > (curBatchMaxRowOffset + 4 * batchSize)) {
         batchReader.seekToRow(rowIds[curRowIndex]);
       }
       return ret;
@@ -96,17 +95,7 @@ public class IndexedOrcMapreduceRecordReader<V extends WritableComparable>
     }
     // The first row in this current batch is definitely in the row Ids, because
     // it's the just seeking row.
-    if (schema.getCategory() == TypeDescription.Category.STRUCT) {
-      OrcStruct result = (OrcStruct) row;
-      List<TypeDescription> children = schema.getChildren();
-      int numberOfChildren = children.size();
-      for(int i=0; i < numberOfChildren; ++i) {
-        result.setFieldValue(i, OrcMapredRecordReader.nextValue(batch.cols[i], rowInBatch,
-            children.get(i), result.getFieldValue(i)));
-      }
-    } else {
-      OrcMapredRecordReader.nextValue(batch.cols[0], rowInBatch, schema, row);
-    }
+    readNextRow();
     rowInBatch += 1;
     // Skip the rows in the current batch which is not in the row Ids.
     // preRowIndex is the starting row in the current batch.

@@ -95,15 +95,13 @@ public class OrcMapreduceRecordReader<V extends WritableComparable>
 
   @Override
   public void initialize(InputSplit inputSplit,
-                         TaskAttemptContext taskAttemptContext) {
+      TaskAttemptContext taskAttemptContext) {
     // nothing required
   }
 
-  @Override
-  public boolean nextKeyValue() throws IOException, InterruptedException {
-    if (!ensureBatch()) {
-      return false;
-    }
+  // Below common code is extracted from nextKeyValue method.
+  // The child class IndexedOrcMapreduceRecordReader will use it as well.
+  protected void readNextRow() {
     if (schema.getCategory() == TypeDescription.Category.STRUCT) {
       OrcStruct result = (OrcStruct) row;
       List<TypeDescription> children = schema.getChildren();
@@ -115,6 +113,14 @@ public class OrcMapreduceRecordReader<V extends WritableComparable>
     } else {
       OrcMapredRecordReader.nextValue(batch.cols[0], rowInBatch, schema, row);
     }
+  }
+
+  @Override
+  public boolean nextKeyValue() throws IOException, InterruptedException {
+    if (!ensureBatch()) {
+      return false;
+    }
+    readNextRow();
     rowInBatch += 1;
     return true;
   }

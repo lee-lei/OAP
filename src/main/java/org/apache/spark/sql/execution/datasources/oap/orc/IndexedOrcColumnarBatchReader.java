@@ -21,11 +21,6 @@ import java.io.IOException;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.orc.storage.ql.exec.vector.ColumnVector;
-
-import org.apache.spark.sql.execution.datasources.orc.OrcColumnVector;
-import org.apache.spark.sql.vectorized.WritableColumnVector;
-import org.apache.spark.sql.types.StructField;
 
 /**
  * The OapIndexOrcColumnarBatchReader class has rowIds in order to scan the data
@@ -33,7 +28,11 @@ import org.apache.spark.sql.types.StructField;
  */
 public class IndexedOrcColumnarBatchReader extends OrcColumnarBatchReader {
 
-  // Below three fields are added by Oap index.
+  /* Below three fields are added by Oap index.
+   * rowIds is assumed to be sorted in ascending order. The oap index will provide it.
+   * curRowIndex is the index in rowIds array to directly jump to that row for efficient scanning.
+   * rowLength is the length of rowIds array.
+   */
   private int[] rowIds;
 
   private int curRowIndex;
@@ -71,52 +70,26 @@ public class IndexedOrcColumnarBatchReader extends OrcColumnarBatchReader {
     if (batchSize == 0) {
       return false;
     }
-    int j = curRowIndex + 1;
+    int nextRowIndex = curRowIndex + 1;
     /* Orc readers support backward scan if the row Ids are out of order.
      * However, with the ascending ordered row Ids, the adjacent rows will
      * be scanned in the same batch. Below is expected that the row Ids are
      * ascending order.
      * Find the next row Id which is not in the same batch with the current row Id.
      */
-    while (j < rowLength && (rowIds[curRowIndex] + batchSize) >= rowIds[j]) {
-      j++;
+    int curBatchMaxRowOffset = rowIds[curRowIndex] + batchSize;
+    while (nextRowIndex < rowLength && curBatchMaxRowOffset >= rowIds[nextRowIndex]) {
+      nextRowIndex++;
     }
-    curRowIndex = j;
-    // Prepare to jump to the row for the next batch.
-    if (j < rowLength) {
+    curRowIndex = nextRowIndex;
+    // Prepare to jump to the row for the next batch if it's not adjacent to the previous one.
+    // Use seekToRow if the next row index is four batch size greater than the current one
+    // in order to avoid the overhead of over frequent seeking.
+    if (curRowIndex < rowLength && rowIds[curRowIndex] > (curBatchMaxRowOffset + 4 * batchSize)) {
       recordReader.seekToRow(rowIds[curRowIndex]);
     }
     columnarBatch.setNumRows(batchSize);
 
-    if (!copyToSpark) {
-      for (int i = 0; i < requiredFields.length; i++) {
-        if (requestedColIds[i] != -1) {
-          ((OrcColumnVector) orcVectorWrappers[i]).setBatchSize(batchSize);
-        }
-      }
-      return true;
-    }
-
-    for (WritableColumnVector vector : columnVectors) {
-      vector.reset();
-    }
-
-    for (int i = 0; i < requiredFields.length; i++) {
-      StructField field = requiredFields[i];
-      WritableColumnVector toColumn = columnVectors[i];
-
-      if (requestedColIds[i] >= 0) {
-        ColumnVector fromColumn = batch.cols[requestedColIds[i]];
-
-        if (fromColumn.isRepeating) {
-          putRepeatingValues(batchSize, field, fromColumn, toColumn);
-        } else if (fromColumn.noNulls) {
-          putNonNullValues(batchSize, field, fromColumn, toColumn);
-        } else {
-          putValues(batchSize, field, fromColumn, toColumn);
-        }
-      }
-    }
-    return true;
+    return readToColumnVectors(batchSize);
   }
 }
