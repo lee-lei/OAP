@@ -37,12 +37,12 @@ import org.apache.orc.storage.serde2.io.HiveDecimalWritable;
 import org.apache.spark.memory.MemoryMode;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.execution.datasources.orc.OrcColumnVector;
-import org.apache.spark.sql.vectorized.ColumnVectorUtils;
-import org.apache.spark.sql.vectorized.OffHeapColumnVector;
-import org.apache.spark.sql.vectorized.OnHeapColumnVector;
-import org.apache.spark.sql.vectorized.WritableColumnVector;
+import org.apache.spark.sql.vectorized.oap.orc.ColumnVectorUtils;
+import org.apache.spark.sql.vectorized.oap.orc.OffHeapColumnVector;
+import org.apache.spark.sql.vectorized.oap.orc.OnHeapColumnVector;
+import org.apache.spark.sql.vectorized.oap.orc.WritableColumnVector;
 import org.apache.spark.sql.types.*;
-import org.apache.spark.sql.vectorized.ColumnarBatch;
+import org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch;
 
 
 /**
@@ -80,7 +80,7 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
   protected WritableColumnVector[] columnVectors;
 
   // The wrapped ORC column vectors. It should be null if `copyToSpark` is true.
-  protected org.apache.spark.sql.vectorized.ColumnVector[] orcVectorWrappers;
+  protected org.apache.spark.sql.vectorized.oap.orc.ColumnVector[] orcVectorWrappers;
 
   // The memory mode of the columnarBatch
   protected final MemoryMode MEMORY_MODE;
@@ -198,7 +198,8 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
       columnarBatch = new ColumnarBatch(columnVectors);
     } else {
       // Just wrap the ORC column vector instead of copying it to Spark column vector.
-      orcVectorWrappers = new org.apache.spark.sql.vectorized.ColumnVector[resultSchema.length()];
+      orcVectorWrappers =
+        new org.apache.spark.sql.vectorized.oap.orc.ColumnVector[resultSchema.length()];
 
       for (int i = 0; i < requiredFields.length; i++) {
         DataType dt = requiredFields[i].dataType();
