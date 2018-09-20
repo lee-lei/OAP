@@ -29,6 +29,7 @@ import org.apache.orc.mapred.OrcStruct
 import org.apache.orc.mapreduce._
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.execution.datasources.OapException
 import org.apache.spark.sql.execution.datasources.oap.filecache._
 import org.apache.spark.sql.execution.datasources.oap.orc.{IndexedOrcColumnarBatchReader, IndexedOrcMapreduceRecordReader, OrcColumnarBatchReader, OrcMapreduceRecordReader}
 import org.apache.spark.sql.oap.OapRuntime
@@ -59,6 +60,15 @@ private[oap] case class OrcDataFile(
     path: String,
     schema: StructType,
     configuration: Configuration) extends DataFile {
+
+  private var context: OrcDataFileContext = _
+  private val filePath: Path = new Path(path)
+  private val fileReader: Reader = {
+    import scala.collection.JavaConverters._
+    val meta =
+      OapRuntime.getOrCreate.dataFileMetaCacheManager.get(this).asInstanceOf[OrcDataFileMeta]
+    meta.getOrcFileReader()
+  }
 
   def iterator(
     requiredIds: Array[Int],
@@ -152,22 +162,15 @@ private[oap] case class OrcDataFile(
     }
   }
 
-  private var context: OrcDataFileContext = _
-  private val filePath: Path = new Path(path)
-  private val fileReader: Reader = {
-    import scala.collection.JavaConverters._
-    val meta =
-      OapRuntime.getOrCreate.dataFileMetaCacheManager.get(this).asInstanceOf[OrcDataFileMeta]
-    meta.getOrcFileReader()
-  }
-
   override def totalRows(): Long =
     fileReader.getNumberOfRows()
 
   override def getDataFileMeta(): DataFileMeta =
     new OrcDataFileMeta(filePath, configuration)
 
-  // Cache will be added after parquet usage is verified to have the expected
-  // benefit from the data cache in the production environment.
-  override def cache(groupId: Int, fiberId: Int): FiberCache = Nil.asInstanceOf[FiberCache]
+  // Data cache is not supported, since the performance with cache
+  // is worse than without cache for Parquet.
+  override def cache(groupId: Int, fiberId: Int): FiberCache = {
+    throw new OapException("Data cache is not supported for Orc.\n")
+  }
 }

@@ -22,8 +22,8 @@ import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
 import org.apache.hadoop.util.StringUtils
-import org.apache.orc._
-import org.apache.orc.mapreduce._
+import org.apache.orc.OrcFile
+import org.apache.orc.mapreduce.OrcInputFormat
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{Row, SparkSession}
@@ -247,7 +247,8 @@ private[sql] class OapFileFormat extends FileFormat
         val isOrc = m.dataReaderClassName.equals(OapFileFormat.ORC_DATA_FILE_CLASSNAME)
         val enableOffHeapColumnVector =
           sparkSession.sessionState.conf.getConf(OapConf.COLUMN_VECTOR_OFFHEAP_ENABLED)
-        val copyToSpark = sparkSession.sessionState.conf.getConf(OapConf.ORC_COPY_BATCH_TO_SPARK)
+        val copyToSpark =
+          sparkSession.sessionState.conf.getConf(OapConf.ORC_COPY_BATCH_TO_SPARK)
         val isCaseSensitive = sparkSession.sessionState.conf.caseSensitiveAnalysis
 
         // Push down the filters to the orc record reader.
@@ -271,7 +272,7 @@ private[sql] class OapFileFormat extends FileFormat
           val fs = path.getFileSystem(broadcastedHadoopConf.value.value)
 
           val version = if (isParquet || isOrc) {
-            // Currently Parquet is using OapDataReaderV1
+            // Currently both Parquet and Orc are using OapDataReaderV1.
             DataFileVersion.OAP_DATAFILE_V1
           } else {
             // Below is for Oap format file.

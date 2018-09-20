@@ -334,31 +334,25 @@ private[oap] class OapDataReaderV1(
       if (enableVectorizedReader) {
         iter.asInstanceOf[Iterator[InternalRow]]
       } else {
-         meta.dataReaderClassName match {
-           // Parquet and Oap are the same branch.
-           case dataReader if (dataReader.equals(OapFileFormat.PARQUET_DATA_FILE_CLASSNAME) ||
-             dataReader.equals(OapFileFormat.OAP_DATA_FILE_CLASSNAME)) =>
-             val fullSchema = requiredSchema.toAttributes ++ partitionSchema.toAttributes
-             val joinedRow = new JoinedRow()
-             val appendPartitionColumns =
-               GenerateUnsafeProjection.generate(fullSchema, fullSchema)
-
-             iter.asInstanceOf[Iterator[InternalRow]].map(d => {
-               appendPartitionColumns(joinedRow(d, file.partitionValues))
-             })
-           case dataReader if (dataReader.equals(OapFileFormat.ORC_DATA_FILE_CLASSNAME)) =>
-             val fullSchema = requiredSchema.toAttributes ++ partitionSchema.toAttributes
-             val orcDataFileContext = context.get.asInstanceOf[OrcDataFileContext]
-             val deserializer = new OrcDeserializer(orcDataFileContext.dataSchema, requiredSchema,
-               orcDataFileContext.requestedColIds)
-             val joinedRow = new JoinedRow()
-             val appendPartitionColumns =
-               GenerateUnsafeProjection.generate(fullSchema, fullSchema)
-
-             iter.asInstanceOf[Iterator[OrcStruct]].map(value => {
-               appendPartitionColumns(joinedRow(deserializer.deserialize(value),
-               file.partitionValues))})
-         }
+        // Parquet and Oap are the same if the vectorization is off.
+        val fullSchema = requiredSchema.toAttributes ++ partitionSchema.toAttributes
+        val joinedRow = new JoinedRow()
+        val appendPartitionColumns =
+          GenerateUnsafeProjection.generate(fullSchema, fullSchema)
+        meta.dataReaderClassName match {
+          case dataReader if (dataReader.equals(OapFileFormat.PARQUET_DATA_FILE_CLASSNAME) ||
+            dataReader.equals(OapFileFormat.OAP_DATA_FILE_CLASSNAME)) =>
+            iter.asInstanceOf[Iterator[InternalRow]].map(d => {
+              appendPartitionColumns(joinedRow(d, file.partitionValues))
+            })
+          case dataReader if (dataReader.equals(OapFileFormat.ORC_DATA_FILE_CLASSNAME)) =>
+            val orcDataFileContext = context.get.asInstanceOf[OrcDataFileContext]
+            val deserializer = new OrcDeserializer(orcDataFileContext.dataSchema, requiredSchema,
+              orcDataFileContext.requestedColIds)
+            iter.asInstanceOf[Iterator[OrcStruct]].map(value => {
+              appendPartitionColumns(joinedRow(deserializer.deserialize(value),
+              file.partitionValues))})
+        }
       }
     }
 }
