@@ -84,6 +84,8 @@ object FileSourceStrategy extends Strategy with Logging {
 
       val selectedPartitions = _fsRelation.location.listFiles(partitionKeyFilters.toSeq, Nil)
 
+      // Below variable is used to indicate to read orc data with oap index accelerated.
+      var isOapOrcFileFormat = false
       val fsRelation: HadoopFsRelation = _fsRelation.fileFormat match {
         // TODO a better rule to check if we need to substitute the ParquetFileFormat
         // as OapFileFormat
@@ -117,6 +119,31 @@ object FileSourceStrategy extends Strategy with Logging {
 
           } else {
             logInfo("hasAvailableIndex = false, will retain ParquetFileFormat.")
+            _fsRelation
+          }
+
+        case a if (_fsRelation.sparkSession.conf.get(OapConf.OAP_ORC_ENABLED) &&
+          (a.isInstanceOf[org.apache.spark.sql.hive.orc.OrcFileFormat] ||
+            a.isInstanceOf[org.apache.spark.sql.execution.datasources.orc.OrcFileFormat])) =>
+          val oapFileFormat = new OapFileFormat
+          oapFileFormat
+            .init(_fsRelation.sparkSession,
+              _fsRelation.options,
+              selectedPartitions.flatMap(p => p.files))
+
+          if (oapFileFormat.hasAvailableIndex(normalizedFilters)) {
+            isOapOrcFileFormat = true
+            logInfo("hasAvailableIndex = true, will replace with OapFileFormat.")
+            val orcOptions: Map[String, String] =
+              Map(SQLConf.ORC_FILTER_PUSHDOWN_ENABLED.key ->
+                _fsRelation.sparkSession.sessionState.conf.orcFilterPushDown.toString) ++
+                _fsRelation.options
+
+            _fsRelation.copy(fileFormat = oapFileFormat,
+              options = orcOptions)(_fsRelation.sparkSession)
+
+          } else {
+            logInfo("hasAvailableIndex = false, will retain OrcFileFormat.")
             _fsRelation
           }
 
@@ -161,7 +188,7 @@ object FileSourceStrategy extends Strategy with Logging {
           outputSchema,
           partitionKeyFilters.toSeq,
           dataFilters,
-          table.map(_.identifier))
+          table.map(_.identifier), isOapOrcFileFormat)
 
       val afterScanFilter = afterScanFilters.toSeq.reduceOption(expressions.And)
       val withFilter = afterScanFilter.map(execution.FilterExec(_, scan)).getOrElse(scan)
