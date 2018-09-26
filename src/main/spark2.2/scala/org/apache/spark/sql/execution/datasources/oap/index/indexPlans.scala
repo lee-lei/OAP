@@ -249,7 +249,8 @@ case class DropIndexCommand(
 
     relation match {
       case LogicalRelation(HadoopFsRelation(fileCatalog, _, _, _, format, _), _, identifier)
-          if format.isInstanceOf[OapFileFormat] || format.isInstanceOf[ParquetFileFormat] =>
+          if format.isInstanceOf[OapFileFormat] || format.isInstanceOf[ParquetFileFormat] ||
+            format.isInstanceOf[OrcFileFormat] =>
         logInfo(s"Dropping index $indexName")
         val partitions = OapUtils.getPartitions(fileCatalog, partitionSpec)
         val targetDirs = partitions.filter(_.files.nonEmpty)
@@ -334,6 +335,14 @@ case class RefreshIndexCommand(
           options = _fsRelation.options)(_fsRelation.sparkSession)
         val logical = LogicalRelation(fsRelation, attributes, id)
         (f, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, logical)
+      case LogicalRelation(
+      _fsRelation @ HadoopFsRelation(f, _, s, _, format: OrcFileFormat, _), attributes, id) =>
+        // Use ReadOnlyOrcFileFormat because ReadOnlyOrcFileFormat.isSplitable is always false.
+        val fsRelation = _fsRelation.copy(
+          fileFormat = new ReadOnlyOrcFileFormat(),
+          options = _fsRelation.options)(_fsRelation.sparkSession)
+        val logical = LogicalRelation(fsRelation, attributes, id)
+        (f, s, OapFileFormat.ORC_DATA_FILE_CLASSNAME, logical)
       case other =>
         throw new OapException(s"We don't support index refreshing for ${other.simpleString}")
     }

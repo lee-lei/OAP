@@ -120,7 +120,8 @@ class OapDDLSuite extends QueryTest with SharedOapContext with BeforeAndAfterEac
     // in the following pull requests are merged.
     // sql("create oindex index1 on oap_orc_table (a) partition (b=1, c='c1')")
     // checkAnswer(sql("select * from oap_orc_table where a < 4"),
-    //  Row(1, 1, "c1") :: Row(2, 1, "c1") :: Row(3, 1, "c1") :: Nil)
+    //   Row(1, 1, "c1") :: Row(2, 1, "c1") :: Row(3, 1, "c1") :: Nil)
+    // sql("drop oindex index1 on oap_orc_table")
   }
 
   test("create and drop index with partition specify") {
