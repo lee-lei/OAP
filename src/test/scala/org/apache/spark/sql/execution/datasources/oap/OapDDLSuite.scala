@@ -40,16 +40,20 @@ class OapDDLSuite extends QueryTest with SharedOapContext with BeforeAndAfterEac
     sql(s"""CREATE TABLE oap_partition_table (a int, b int, c STRING)
             | USING parquet
             | PARTITIONED by (b, c)""".stripMargin)
-    sql(s"""CREATE TABLE oap_orc_table (a int, b int, c STRING)
+    sql(s"""CREATE TABLE orc_table_1 (a int, b int, c STRING)
             | USING orc
             | PARTITIONED by (b, c)""".stripMargin)
+    sql(s"""CREATE TEMPORARY VIEW orc_table_2 (a INT, b INT)
+           | USING orc
+           | OPTIONS (path '$path2')""".stripMargin)
   }
 
   override def afterEach(): Unit = {
     sqlContext.dropTempTable("oap_test_1")
     sqlContext.dropTempTable("oap_test_2")
     sqlContext.sql("drop table oap_partition_table")
-    sqlContext.sql("drop table oap_orc_table")
+    sqlContext.sql("drop table orc_table_1")
+    sqlContext.sql("drop table orc_table_2")
   }
 
   test("write index for table read in from DS api") {
@@ -109,19 +113,33 @@ class OapDDLSuite extends QueryTest with SharedOapContext with BeforeAndAfterEac
 
     sql(
       """
-        |INSERT OVERWRITE TABLE oap_orc_table
+        |INSERT OVERWRITE TABLE orc_table_1
         |partition (b=1, c='c1')
-        |SELECT key from t where value < 4
+        |SELECT key from t
       """.stripMargin)
 
-    checkAnswer(sql("select * from oap_orc_table where a < 4"),
+    checkAnswer(sql("select * from orc_table_1 where a < 4"),
       Row(1, 1, "c1") :: Row(2, 1, "c1") :: Row(3, 1, "c1") :: Nil)
-    // Turn on below index creation and query after the corresponding support
-    // in the following pull requests are merged.
-    // sql("create oindex index1 on oap_orc_table (a) partition (b=1, c='c1')")
-    // checkAnswer(sql("select * from oap_orc_table where a < 4"),
-    //   Row(1, 1, "c1") :: Row(2, 1, "c1") :: Row(3, 1, "c1") :: Nil)
-    // sql("drop oindex index1 on oap_orc_table")
+    sql("create oindex index1 on orc_table_1 (a) partition (b=1, c='c1')")
+    checkAnswer(sql("select * from orc_table_1 where a < 4"),
+      Row(1, 1, "c1") :: Row(2, 1, "c1") :: Row(3, 1, "c1") :: Nil)
+    sql("drop oindex index1 on orc_table_1")
+
+    // Test without index.
+    sql("insert overwrite table orc_table_2 select * from t")
+    checkAnswer(sql("select * from orc_table_2 where a < 4"),
+      Row(1, 1) :: Row(2, 2) :: Row(3, 3) :: Nil)
+    // Test btree index.
+    sql("create oindex index2 on orc_table_2 (a)")
+    checkAnswer(sql("select * from orc_table_2 where a < 4"),
+      Row(1, 1) :: Row(2, 2) :: Row(3, 3) :: Nil)
+    sql("drop oindex index2 on orc_table_2")
+
+    // Test bitmap index.
+    sql("create oindex index2 on orc_table_2 (a) using BITMAP")
+    checkAnswer(sql("select * from orc_table_2 where a == 4"),
+      Row(4, 4) :: Nil)
+    sql("drop oindex index2 on orc_table_2")
   }
 
   test("create and drop index with partition specify") {
