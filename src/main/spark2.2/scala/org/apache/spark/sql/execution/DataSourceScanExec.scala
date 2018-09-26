@@ -160,7 +160,8 @@ case class FileSourceScanExec(
     requiredSchema: StructType,
     partitionFilters: Seq[Expression],
     dataFilters: Seq[Expression],
-    override val metastoreTableIdentifier: Option[TableIdentifier])
+    override val metastoreTableIdentifier: Option[TableIdentifier],
+    forOrcColumnarBatch: Boolean = false)
   extends DataSourceScanExec with ColumnarBatchScan  {
 
   val supportsBatch: Boolean = relation.fileFormat.supportBatch(
@@ -350,6 +351,7 @@ case class FileSourceScanExec(
 
   override protected def doProduce(ctx: CodegenContext): String = {
     if (supportsBatch) {
+      super.setForOrcColumnarBatch(forOrcColumnarBatch)
       return super.doProduce(ctx)
     }
     val numOutputRows = metricTerm(ctx, "numOutputRows")

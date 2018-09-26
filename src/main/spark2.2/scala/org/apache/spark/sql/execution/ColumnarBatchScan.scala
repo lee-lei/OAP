@@ -32,6 +32,9 @@ import org.apache.spark.sql.types.DataType
 private[sql] trait ColumnarBatchScan extends CodegenSupport {
 
   val inMemoryTableScan: InMemoryTableScanExec = null
+  // Default, the orc is using the same columnar batch as Spark.
+  // For orc, it will use the columnar batch ported from Spark2.3
+  private var forOapOrcColumnarBatch: Boolean = false
 
   override lazy val metrics = Map(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
@@ -63,6 +66,9 @@ private[sql] trait ColumnarBatchScan extends CodegenSupport {
     ExprCode(code, isNullVar, valueVar)
   }
 
+  def setForOrcColumnarBatch(forOapOrcColumnarBatch: Boolean) =
+    this.forOapOrcColumnarBatch = forOapOrcColumnarBatch
+
   /**
    * Produce code to process the input iterator as [[ColumnarBatch]]es.
    * This produces an [[UnsafeRow]] for each row in each batch.
@@ -79,11 +85,19 @@ private[sql] trait ColumnarBatchScan extends CodegenSupport {
     val scanTimeTotalNs = ctx.freshName("scanTime")
     ctx.addMutableState("long", scanTimeTotalNs, s"$scanTimeTotalNs = 0;")
 
-    val columnarBatchClz = "org.apache.spark.sql.execution.vectorized.ColumnarBatch"
+    val columnarBatchClz =
+      if (!forOapOrcColumnarBatch)
+        "org.apache.spark.sql.execution.vectorized.ColumnarBatch"
+      else
+        "org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch"
     val batch = ctx.freshName("batch")
     ctx.addMutableState(columnarBatchClz, batch, s"$batch = null;")
 
-    val columnVectorClz = "org.apache.spark.sql.execution.vectorized.ColumnVector"
+    val columnVectorClz =
+      if (!forOapOrcColumnarBatch)
+        "org.apache.spark.sql.execution.vectorized.ColumnVector"
+      else
+        "org.apache.spark.sql.vectorized.oap.orc.ColumnVector"
     val idx = ctx.freshName("batchIdx")
     ctx.addMutableState("int", idx, s"$idx = 0;")
     val colVars = output.indices.map(i => ctx.freshName("colInstance" + i))
