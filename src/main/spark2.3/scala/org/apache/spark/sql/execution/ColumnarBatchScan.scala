@@ -31,17 +31,16 @@ private[sql] trait ColumnarBatchScan extends CodegenSupport {
 
   def vectorTypes: Option[Seq[String]] = None
 
- /* Without oap index, forOapOrcColumnarBatch is false.
-  * With oap index, forOapOrcColumnarBatch is true, and the code gen
-  * will use org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch, which
-  * is back ported and the same as that in Spark 2.3.
-  */
+ /* With oap index and orc format, forOapOrcColumnarBatch is true. Otherwise, it's false.
+  * If it's true, the code gen will use org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch which
+  * is back ported from Spark 2.3 for OrcColumnarBatchReader.
+  **/
   private var forOapOrcColumnarBatch: Boolean = false
   protected def supportsBatch: Boolean = true
 
   protected def needsUnsafeRowConversion: Boolean = true
 
-  def setForOrcColumnarBatch(forOapOrcColumnarBatch: Boolean) =
+  def setForOapOrcColumnarBatch(forOapOrcColumnarBatch: Boolean) =
     this.forOapOrcColumnarBatch = forOapOrcColumnarBatch
 
   override lazy val metrics = Map(

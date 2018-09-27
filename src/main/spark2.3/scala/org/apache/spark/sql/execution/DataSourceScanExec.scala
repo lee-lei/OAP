@@ -163,8 +163,7 @@ case class FileSourceScanExec(
     requiredSchema: StructType,
     partitionFilters: Seq[Expression],
     dataFilters: Seq[Expression],
-    override val tableIdentifier: Option[TableIdentifier],
-    val forOrcColumnarBatch: Boolean = false)
+    override val tableIdentifier: Option[TableIdentifier])
   extends DataSourceScanExec with ColumnarBatchScan  {
 
   override val supportsBatch: Boolean = relation.fileFormat.supportBatch(
@@ -178,9 +177,14 @@ case class FileSourceScanExec(
     }
   }
 
-  // Below is defined in ColumnarBatchScan.scala.
+  // setForOrcColumnarBatch is defined in ColumnarBatchScan.scala.
   // If it's true, use this to read orc data with oap index accelerated.
-  super.setForOrcColumnarBatch(forOrcColumnarBatch)
+  relation.options.getOrElse("isOapOrcFileFormat", "false") match {
+    case "false" =>
+      super.setForOapOrcColumnarBatch(false)
+    case "true" =>
+      super.setForOapOrcColumnarBatch(true)
+  }
 
   override def vectorTypes: Option[Seq[String]] =
     relation.fileFormat.vectorTypes(

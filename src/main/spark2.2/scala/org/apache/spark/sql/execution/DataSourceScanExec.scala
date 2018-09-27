@@ -160,8 +160,7 @@ case class FileSourceScanExec(
     requiredSchema: StructType,
     partitionFilters: Seq[Expression],
     dataFilters: Seq[Expression],
-    override val metastoreTableIdentifier: Option[TableIdentifier],
-    forOrcColumnarBatch: Boolean = false)
+    override val metastoreTableIdentifier: Option[TableIdentifier])
   extends DataSourceScanExec with ColumnarBatchScan  {
 
   val supportsBatch: Boolean = relation.fileFormat.supportBatch(
@@ -171,6 +170,15 @@ case class FileSourceScanExec(
     SparkSession.getActiveSession.get.sessionState.conf.parquetVectorizedReaderEnabled
   } else {
     false
+  }
+
+  // setForOapOrcColumnarBatch is defined in ColumnarBatchScan.scala.
+  // If it's true, use this to read orc data with oap index accelerated.
+  relation.options.getOrElse("isOapOrcFileFormat", "false") match {
+    case "false" =>
+      super.setForOapOrcColumnarBatch(false)
+    case "true" =>
+      super.setForOapOrcColumnarBatch(true)
   }
 
   @transient private lazy val selectedPartitions: Seq[PartitionDirectory] = {
@@ -351,7 +359,6 @@ case class FileSourceScanExec(
 
   override protected def doProduce(ctx: CodegenContext): String = {
     if (supportsBatch) {
-      super.setForOrcColumnarBatch(forOrcColumnarBatch)
       return super.doProduce(ctx)
     }
     val numOutputRows = metricTerm(ctx, "numOutputRows")

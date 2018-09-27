@@ -146,8 +146,7 @@ case class FileSourceScanExec(
     outputSchema: StructType,
     partitionFilters: Seq[Expression],
     dataFilters: Seq[Filter],
-    override val metastoreTableIdentifier: Option[TableIdentifier],
-    val forOapOrcColumnarBatch: Boolean = false)
+    override val metastoreTableIdentifier: Option[TableIdentifier])
   extends DataSourceScanExec {
 
   val supportsBatch = relation.fileFormat.supportBatch(
@@ -160,6 +159,16 @@ case class FileSourceScanExec(
   }
 
   @transient private lazy val selectedPartitions = relation.location.listFiles(partitionFilters)
+
+ /* With oap index and orc format, forOapOrcColumnarBatch is true. Otherwise, it's false.
+  * If it's true, the code gen will use org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch which
+  * is back ported from Spark 2.3 for OrcColumnarBatchReader.
+  **/
+  private val forOapOrcColumnarBatch =
+    relation.options.getOrElse("isOapOrcFileFormat", "false") match {
+      case "false" => false
+      case "true" => true
+    }
 
   override val (outputPartitioning, outputOrdering): (Partitioning, Seq[SortOrder]) = {
     val bucketSpec = if (relation.sparkSession.sessionState.conf.bucketingEnabled) {

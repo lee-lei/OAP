@@ -32,8 +32,10 @@ import org.apache.spark.sql.types.DataType
 private[sql] trait ColumnarBatchScan extends CodegenSupport {
 
   val inMemoryTableScan: InMemoryTableScanExec = null
-  // Default, the orc is using the same columnar batch as Spark.
-  // For orc, it will use the columnar batch ported from Spark2.3
+ /* With oap index and orc format, forOapOrcColumnarBatch is true. Otherwise, it's false.
+  * If it's true, the code gen will use org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch which
+  * is back ported from Spark 2.3 for OrcColumnarBatchReader.
+  **/
   private var forOapOrcColumnarBatch: Boolean = false
 
   override lazy val metrics = Map(
@@ -66,7 +68,7 @@ private[sql] trait ColumnarBatchScan extends CodegenSupport {
     ExprCode(code, isNullVar, valueVar)
   }
 
-  def setForOrcColumnarBatch(forOapOrcColumnarBatch: Boolean) =
+  def setForOapOrcColumnarBatch(forOapOrcColumnarBatch: Boolean) =
     this.forOapOrcColumnarBatch = forOapOrcColumnarBatch
 
   /**
