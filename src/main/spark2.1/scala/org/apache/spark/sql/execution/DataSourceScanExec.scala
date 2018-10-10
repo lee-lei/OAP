@@ -160,10 +160,11 @@ case class FileSourceScanExec(
 
   @transient private lazy val selectedPartitions = relation.location.listFiles(partitionFilters)
 
- /* With oap index and orc format, forOapOrcColumnarBatch is true. Otherwise, it's false.
+ /**
+  * With oap index and orc format, forOapOrcColumnarBatch is true. Otherwise, it's false.
   * If it's true, the code gen will use org.apache.spark.sql.vectorized.oap.orc.ColumnarBatch which
   * is back ported from Spark 2.3 for OrcColumnarBatchReader.
-  **/
+  */
   private val forOapOrcColumnarBatch =
     relation.options.getOrElse("isOapOrcFileFormat", "false") match {
       case "false" => false

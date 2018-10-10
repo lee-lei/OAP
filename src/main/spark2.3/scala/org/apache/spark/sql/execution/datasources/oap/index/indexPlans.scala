@@ -63,10 +63,11 @@ case class CreateIndexCommand(
 
     val (fileCatalog, schema, readerClassName, identifier, relation) = optimized match {
       case LogicalRelation(
-      _fsRelation @ HadoopFsRelation(f, _, s, _, _: OapFileFormat, _), _, id, _) =>
+          _fsRelation @ HadoopFsRelation(f, _, s, _, _: OapFileFormat, _), _, id, _) =>
         (f, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, id, optimized)
       case LogicalRelation(
-      _fsRelation @ HadoopFsRelation(f, _, s, _, format: ParquetFileFormat, _), attributes, id, _) =>
+          _fsRelation @ HadoopFsRelation(f, _, s, _, format: ParquetFileFormat, _),
+          attributes, id, _) =>
         if (!sparkSession.conf.get(OapConf.OAP_PARQUET_ENABLED)) {
           throw new OapException(s"turn on ${
             OapConf.OAP_PARQUET_ENABLED.key} to allow index building on parquet files")
@@ -79,8 +80,8 @@ case class CreateIndexCommand(
         val logical = LogicalRelation(fsRelation, attributes, id, false)
         (f, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, id, logical)
       case LogicalRelation(
-      _fsRelation @ HadoopFsRelation(f, _, s, _, format, _), attributes, id, _)
-        if (format.isInstanceOf[org.apache.spark.sql.hive.orc.OrcFileFormat] ||
+          _fsRelation @ HadoopFsRelation(f, _, s, _, format, _), attributes, id, _)
+          if (format.isInstanceOf[org.apache.spark.sql.hive.orc.OrcFileFormat] ||
           format.isInstanceOf[org.apache.spark.sql.execution.datasources.orc.OrcFileFormat]) =>
         if (!sparkSession.conf.get(OapConf.OAP_ORC_ENABLED)) {
           throw new OapException(s"turn on ${
@@ -337,7 +338,8 @@ case class RefreshIndexCommand(
           HadoopFsRelation(f, _, s, _, _: OapFileFormat, _), _, _, _) =>
         (f, s, OapFileFormat.OAP_DATA_FILE_CLASSNAME, optimized)
       case LogicalRelation(
-      _fsRelation @ HadoopFsRelation(f, _, s, _, format: ParquetFileFormat, _), attributes, id, _) =>
+          _fsRelation @ HadoopFsRelation(f, _, s, _, format: ParquetFileFormat, _),
+          attributes, id, _) =>
         // Use ReadOnlyParquetFileFormat instead of ParquetFileFormat because of
         // ReadOnlyParquetFileFormat.isSplitable always return false
         val fsRelation = _fsRelation.copy(
@@ -346,8 +348,8 @@ case class RefreshIndexCommand(
         val logical = LogicalRelation(fsRelation, attributes, id, false)
         (f, s, OapFileFormat.PARQUET_DATA_FILE_CLASSNAME, logical)
       case LogicalRelation(
-      _fsRelation @ HadoopFsRelation(f, _, s, _, format, _), attributes, id, _)
-        if (format.isInstanceOf[org.apache.spark.sql.hive.orc.OrcFileFormat] ||
+          _fsRelation @ HadoopFsRelation(f, _, s, _, format, _), attributes, id, _)
+          if (format.isInstanceOf[org.apache.spark.sql.hive.orc.OrcFileFormat] ||
           format.isInstanceOf[org.apache.spark.sql.execution.datasources.orc.OrcFileFormat]) =>
         // ReadOnlyOrcFileFormat and ReadOnlyNativeOrcFileFormat don't support splitable.
         // ReadOnlyOrcFileFormat is for hive orc.
