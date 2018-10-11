@@ -98,10 +98,11 @@ private[sql] trait ColumnarBatchScan extends CodegenSupport {
     ctx.addMutableState(columnarBatchClz, batch, s"$batch = null;")
 
     val columnVectorClz =
-      if (!forOapOrcColumnarBatch)
+      if (!forOapOrcColumnarBatch) {
         "org.apache.spark.sql.execution.vectorized.ColumnVector"
-      else
+      } else {
         "org.apache.spark.sql.vectorized.oap.orc.ColumnVector"
+      }
     val idx = ctx.freshName("batchIdx")
     ctx.addMutableState("int", idx, s"$idx = 0;")
     val colVars = output.indices.map(i => ctx.freshName("colInstance" + i))
